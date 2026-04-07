@@ -234,20 +234,53 @@ async function captureSnapshot(cdp) {
                 'div[class*="interaction-area"]',
                 '.p-1.bg-gray-500\\/10',
                 '.outline-solid.justify-between',
-                '[contenteditable="true"]'
+                '[contenteditable="true"]',
+                '[data-lexical-editor]',
+                'form',
+                // New aggressive selectors for recent Antigravity versions
+                '.mx-8.mb-8',
+                '.mx-4.mb-4',
+                '.fixed.bottom-0',
+                '.absolute.bottom-0'
             ];
 
             interactionSelectors.forEach(selector => {
                 clone.querySelectorAll(selector).forEach(el => {
                     try {
-                        // For the editor, we want to remove its interaction container
-                        if (selector === '[contenteditable="true"]') {
-                            const area = el.closest('.relative.flex.flex-col.gap-8') || 
-                                         el.closest('.flex.grow.flex-col.justify-start.gap-8') ||
-                                         el.closest('div[id^="interaction"]') ||
-                                         el.parentElement?.parentElement;
-                            if (area && area !== clone) area.remove();
-                            else el.remove();
+                        // Protect elements that contain interactive buttons the user might need
+                        const text = (el.innerText || '').toLowerCase();
+                        const isActionArea = text.includes('allow') || text.includes('deny') || 
+                                           text.includes('review') || text.includes('run') ||
+                                           text.includes('confirm');
+                        
+                        // BUT: If it's specifically an input-related element, we DON'T protect it
+                        const isEditor = el.hasAttribute('contenteditable') || 
+                                       el.hasAttribute('data-lexical-editor') ||
+                                       text.includes('ask anything') ||
+                                       text.includes('to mention');
+
+                        if (!isEditor && isActionArea && selector !== '[contenteditable="true"]') {
+                            return; // Protect action bars
+                        }
+
+                        // For the editor or its container, remove it
+                        // Go up to find the main floating box if it's a deep selector
+                        let targetToRemove = el;
+                        if (isEditor || selector.includes('bottom-0')) {
+                             // Find the common container for the input box (usually has margins or padding)
+                             let parent = el.parentElement;
+                             for (let i = 0; i < 4; i++) {
+                                 if (!parent || parent === clone) break;
+                                 const pCls = (parent.className || '').toString();
+                                 if (pCls.includes('mx-') || pCls.includes('mb-') || pCls.includes('bg-')) {
+                                     targetToRemove = parent;
+                                 }
+                                 parent = parent.parentElement;
+                             }
+                        }
+                        
+                        if (targetToRemove && targetToRemove !== clone) {
+                            targetToRemove.remove();
                         } else {
                             el.remove();
                         }
@@ -255,19 +288,66 @@ async function captureSnapshot(cdp) {
                 });
             });
 
-            // 2. Text-based cleanup for stray status bars
+            // 2. Text-based cleanup for stray status bars and redundant desktop inputs
             const allElements = clone.querySelectorAll('*');
             allElements.forEach(el => {
                 try {
                     const text = (el.innerText || '').toLowerCase();
-                    if (text.includes('review changes') || text.includes('files with changes') || text.includes('context found')) {
-                        // If it's a small structural element or has buttons, it's likely a bar
-                        if (el.children.length < 10 || el.querySelector('button') || el.classList?.contains('justify-between')) {
-                            el.style.display = 'none'; // Use both hide and remove
-                            el.remove();
+                    const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
+                    const isInputPlaceholder = text.includes('ask anything') || 
+                                              text.includes('to mention') || 
+                                              placeholder.includes('ask anything');
+                    
+                    // IF it's the main chat box (contains placeholder text), remove its container
+                    if (isInputPlaceholder) {
+                        // Find the container (usually a few levels up)
+                        let container = el;
+                        for (let i = 0; i < 5; i++) {
+                            if (!container.parentElement || container.parentElement === clone) break;
+                            const cls = (container.className || '').toString();
+                            if (cls.includes('flex-col') || cls.includes('input') || cls.includes('area')) {
+                                container.remove();
+                                return;
+                            }
+                            container = container.parentElement;
                         }
+                        el.remove();
+                        return;
                     }
-                } catch (e) {}
+                } catch(e) {}
+            });
+
+            // 3. NUCLEAR: If any editor or redundant UI remains, remove its entire branch
+            const redundantElements = clone.querySelectorAll('[contenteditable="true"], [data-lexical-editor], [role="textbox"], form, .mx-8.mb-8, .mx-4.mb-4');
+            redundantElements.forEach(el => {
+                try {
+                    let branch = el;
+                    // Go up to find the highest container that is still within the clone
+                    // This ensures we remove the entire "box" (with chips, submit btn, etc)
+                    while (branch.parentElement && branch.parentElement !== clone) {
+                        const p = branch.parentElement;
+                        const pCls = (p.className || '').toString().toLowerCase();
+                        // Stop going up if we hit a main message/conversation wrapper
+                        if (pCls.includes('message') || pCls.includes('bubble') || pCls.includes('conversation')) break;
+                        branch = p;
+                    }
+                    if (branch && branch !== clone) branch.remove();
+                    else el.remove();
+                } catch(e) {}
+            });
+
+            // 4. Force hide any fixed/absolute elements appearing at the bottom (desktop overlays)
+            // But exclude the Action Bars we want to keep
+            clone.querySelectorAll('*').forEach(el => {
+                try {
+                    const style = el.getAttribute('style') || '';
+                    if (style.includes('position: fixed') || style.includes('position: absolute')) {
+                        const text = (el.innerText || '').toLowerCase();
+                        if (text.includes('allow') || text.includes('deny') || text.includes('review')) return;
+                        el.style.display = 'none';
+                        el.remove();
+                    }
+                } catch(e) {}
             });
         } catch (globalErr) { }
 

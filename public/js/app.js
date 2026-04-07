@@ -1072,16 +1072,16 @@ chatContainer.addEventListener('click', async (e) => {
 
     const text = target.innerText || '';
 
-    // Check if this looks like a thought toggle (matches "Thought for Xs" or "Thinking" patterns)
-    // Also match the header of expanded thoughts which may have more content
-    const isThoughtToggle = /Thought|Thinking/i.test(text) && text.length < 500;
+    // Check if this looks like a clickable UI toggle from Antigravity/Cascade
+    // Includes: Thought blocks, Worked status, Edited files status, and File lists
+    const isUiToggle = /Thought|Thinking|Worked for|Edited|\d+\s+file/i.test(text) && text.length < 500;
 
-    if (isThoughtToggle) {
+    if (isUiToggle) {
         // Visual feedback - briefly dim the clicked element
         target.style.opacity = '0.5';
         setTimeout(() => target.style.opacity = '1', 300);
 
-        // Extract just the first line for matching (e.g., "Thought for 3s")
+        // Extract just the first line for matching
         const firstLine = text.split('\n')[0].trim();
 
         // Determine which occurrence of this text the user tapped
@@ -1093,8 +1093,8 @@ chatContainer.addEventListener('click', async (e) => {
             const elText = el.innerText || '';
             const elFirstLine = elText.split('\n')[0].trim();
 
-            // Only count if it looks like a thought toggle and matches the first line exactly
-            if (/Thought|Thinking/i.test(elText) && elText.length < 500 && elFirstLine === firstLine) {
+            // Only count if it looks like a UI toggle and matches the first line exactly
+            if (/Thought|Thinking|Worked for|Edited|\d+\s+file/i.test(elText) && elText.length < 500 && elFirstLine === firstLine) {
                 // If this is our target (or contains it), we've found the correct index
                 if (el === target || el.contains(target)) {
                     break;
@@ -1125,24 +1125,33 @@ chatContainer.addEventListener('click', async (e) => {
         return;
     }
 
-    // --- Command Action Buttons (Run / Reject) ---
-    const btn = e.target.closest('button');
+    // --- Command Action Buttons (Run, Reject, Allow, Deny, etc.) ---
+    const btn = e.target.closest('button, [role="button"]');
     if (btn) {
         const btnText = (btn.innerText || '').trim();
-        // Match "Run", "Run Alt+⏎", "Reject"
-        const isRun = /^Run/i.test(btnText);
-        const isReject = /^Reject$/i.test(btnText);
+        
+        // Match various action keywords
+        const actionKeywords = [
+            'Run', 'Reject', 'Allow', 'Deny', 'Confirm', 'Accept', 
+            'Yes', 'No', 'Always allow', 'Allow once', 'Allow this conversation',
+            'Review', 'Review changes', 'Apply', 'Save', 'Discard'
+        ];
+        
+        const matchedKeyword = actionKeywords.find(kw => 
+            btnText.toLowerCase().includes(kw.toLowerCase())
+        );
 
-        if (isRun || isReject) {
+        if (matchedKeyword) {
             btn.style.opacity = '0.5';
             setTimeout(() => btn.style.opacity = '1', 300);
 
             // Determine which occurrence of this button text the user tapped
-            const label = isRun ? 'Run' : 'Reject';
-            const allButtons = Array.from(chatContainer.querySelectorAll('button'));
+            const allButtons = Array.from(chatContainer.querySelectorAll('button, [role="button"]'));
 
-            // Filter to only those that match our specific label (to handle multiple commands)
-            const matchingButtons = allButtons.filter(b => (b.innerText || '').includes(label));
+            // Filter to only those that match our specific keyword
+            const matchingButtons = allButtons.filter(b => 
+                (b.innerText || '').toLowerCase().includes(matchedKeyword.toLowerCase())
+            );
             const btnIndex = matchingButtons.indexOf(btn);
 
             try {
@@ -1150,16 +1159,18 @@ chatContainer.addEventListener('click', async (e) => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        selector: 'button',
+                        selector: btn.tagName.toLowerCase() === 'button' ? 'button' : '[role="button"]',
                         index: btnIndex >= 0 ? btnIndex : 0,
-                        textContent: label
+                        textContent: matchedKeyword
                     })
                 });
-                setTimeout(loadSnapshot, 500);
-                setTimeout(loadSnapshot, 1500);
-                setTimeout(loadSnapshot, 3000);
+                
+                // Rapidly poll for updates as actions usually trigger DOM changes
+                setTimeout(loadSnapshot, 400);
+                setTimeout(loadSnapshot, 1000);
+                setTimeout(loadSnapshot, 2500);
             } catch (err) {
-                console.error('Remote command click failed:', err);
+                console.error('Remote button click failed:', err);
             }
         }
     }

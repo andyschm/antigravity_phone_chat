@@ -167,7 +167,7 @@ This tool is designed with a **"Local-First"** security model.
 
 ## ✨ Features
 
-- **🧹 Clean Mobile View (NEW!)**: Automatically filters out "Review Changes" bars, "Linked Objects," and Desktop-specific input areas to keep your phone view focused purely on the chat and code content.
+- **🧹 Clean Mobile View (NEW!)**: Automatically filters out redundant Desktop-specific input areas using an aggressive "Nuclear Cleanup" strategy. It targets the main desktop chat box and fixed overlays while carefully **preserving** actionable items like "Review Changes" and permission bars.
 - **Glassmorphism UI (NEW!)**: Sleek and modern quick-action and settings menus featuring a beautiful glassmorphism effect for enhanced mobile usability. Includes customizable, ready-to-use prompt pills (like "Explain this code", "Continue", and "Fix Bugs").
 - **🌙 Improved Dark Mode (NEW!)**: Enhanced UI styling and state capture designed to provide maximum clarity and correct model detection in dark mode.
 - **🧠 Latest AI Models**: Automatically updated support for the latest model versions from Gemini, Claude, and OpenAI.
@@ -183,7 +183,8 @@ This tool is designed with a **"Local-First"** security model.
 - **Scroll Sync**: When you scroll on your phone, the desktop Antigravity scrolls too!
 - **🎯 Precision Remote Control (NEW!)**: A deterministic targeting layer that prevents "Sync-Fighting". It uses leaf-node filtering to ensure clicks land exactly on buttons, even when nested inside complex DOM structures.
 - **Occurrence Index Tracking**: Robustly handles multiple identical elements (like three "Run" buttons in history) by tracking the specific tapped instance.
-- **Thought Expansion**: Tap on "Thinking..." or "Thought" blocks on your phone to remotely expand/collapse them with first-line text matching.
+- **Thought & Status Expansion (NEW!)**: Tap on "Thinking...", "Thought", "Worked for", "Edited", or "X files" blocks on your phone to remotely expand/collapse them with intelligent text matching.
+- **Remote Action Support (NEW!)**: Direct support for "Allow", "Deny", "Allow Once", "Review Changes", "Apply", and "Save" buttons. No more walking back to your desk for simple permissions.
 - **Smart Sync**: Bi-directional synchronization ensures your phone always shows the current Model and Mode selected on your desktop.
 - **Premium Mobile UI**: A sleek, dark-themed interface optimized for touch interaction.
 - **Context Menu Management**: Dedicated scripts to **Install, Remove, Restart, or Backup** your Right-Click integrations.

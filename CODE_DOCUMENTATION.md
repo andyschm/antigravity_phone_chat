@@ -59,7 +59,7 @@ graph TD
 | `loadSnapshot()` (Client) | Renders the HTML snapshot and injects CSS overrides for dark mode. |
 | `injectMessage()` | Locates the Antigravity input field and simulates typing/submission. Uses `JSON.stringify` for safe escaping. |
 | `setMode()` / `setModel()` | Robust text-based selectors to change AI settings remotely. |
-| `clickElement()` | Relays a physical click from the phone to the desktop. Uses a **Deterministic Targeting Layer** combining text-anchoring, leaf-most filtering (ignoring parents of targets), and occurrence index tracking to guarantee the correct element is triggered among clones. |
+| `clickElement()` | Relays a physical click from the phone to the desktop. Supports buttons, role-based elements, and toggles like "Thought", "Worked for", or "Edited files". Uses a **Deterministic Targeting Layer** combining text-anchoring, leaf-most filtering, and occurrence index tracking to guarantee the correct element is triggered among clones. |
 | `remoteScroll()` | Syncs phone scroll position to Desktop Antigravity chat. |
 | `getAppState()` | Syncs Mode/Model status and detects history visibility. |
 | `startNewChat()` | Triggers the "New Chat" action on Desktop. |
@@ -207,7 +207,8 @@ The system utilizes a dual-pass targeting architecture to maintain deterministic
 ### Snapshot Cleanup & Interaction Filtering
 To ensure a clean "Observation Mode" on mobile, the server performs an aggressive cleanup of the captured DOM before sending it to the client:
 1.  **Interaction Area Removal**: The entire bottom interaction wrapper (input box, send buttons, model selection) is identified and removed.
-2.  **Context Bar Hiding**: "Review Changes" and "Files With Changes" bars are automatically stripped using structural and keyword-based filtering.
-3.  **Visual Overrides**: Custom CSS injections ensure that Desktop-specific UI elements (like scrollbars or specific borders) are masked. Specifically, a precise **glassmorphism styling** and modern dark-mode tracking are applied to the mobile quick-action (prompt pills like "Explain this code") and settings headers for enhanced readability and aesthetics.
+2.  **Surgical Redundant UI Removal**: The system aggressively targets the main desktop input area (chips, placeholder, and submit button) and fixed bottom overlays. It uses a **"Nuclear Cleanup"** strategy: when an editor or placeholder is detected, it crawls up the DOM to remove the entire UI branch, ensuring no "ghost" desktop elements remain on mobile.
+3.  **Actionable Preservation**: Unlike earlier versions, context and action bars like "Review Changes", "Allow/Deny", or "files with changes" are now **preserved** if they contain interactive buttons, enabling full remote management of Antigravity workflows.
+4.  **Visual Overrides**: Custom CSS injections ensure that Desktop-specific UI elements (like scrollbars or specific borders) are masked. Specifically, a precise **glassmorphism styling** and modern dark-mode tracking are applied to the mobile quick-action (prompt pills like "Explain this code") and settings headers for enhanced readability and aesthetics.
 4.  **Model State Tracking**: Advanced DOM scraping dynamically tracks active models from Desktop (including the latest Gemini and Claude models), mirroring them seamlessly onto the mobile interface.
 5.  **Error-Safe Cleanup**: The filtering logic uses `try-catch` blocks and safe `classList` checks to prevent CDP execution errors when encountering legacy or non-standard SVG elements.

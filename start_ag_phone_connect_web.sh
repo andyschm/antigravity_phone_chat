@@ -13,6 +13,7 @@ echo "[0/2] Cleaning up orphans..."
 pkill -f "node server.js" &> /dev/null
 pkill -f "ngrok" &> /dev/null
 pkill -f "cloudflared" &> /dev/null
+pkill -f "pinggy" &> /dev/null
 # Cleanup by port (Linux/Mac)
 if command -v lsof &> /dev/null; then
     lsof -ti:3000 | xargs kill -9 &> /dev/null

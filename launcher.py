@@ -13,7 +13,7 @@ import logging
 # -----------------------------------------------------------------------------
 def check_dependencies():
     """Checks and installs required Python packages."""
-    needed = ["pyngrok", "python-dotenv", "qrcode"]
+    needed = ["pyngrok", "python-dotenv", "qrcode", "pinggy"]
     installed = []
     
     # Check what is missing
@@ -22,6 +22,7 @@ def check_dependencies():
             if pkg == "pyngrok": from pyngrok import ngrok
             elif pkg == "python-dotenv": from dotenv import load_dotenv
             elif pkg == "qrcode": import qrcode
+            elif pkg == "pinggy": import pinggy
             installed.append(pkg)
         except ImportError:
             pass
@@ -96,7 +97,7 @@ def print_qr(url):
 def main():
     parser = argparse.ArgumentParser(description="Antigravity Phone Connect Launcher")
     parser.add_argument('--mode', choices=['local', 'web'], default='web', help="Mode to run in: 'local' (WiFi) or 'web' (Internet)")
-    parser.add_argument('--provider', choices=['ngrok', 'cloudflare'], help="Tunnel provider (defaults to .env TUNNEL_PROVIDER or 'ngrok')")
+    parser.add_argument('--provider', choices=['ngrok', 'cloudflare', 'pinggy'], help="Tunnel provider (defaults to .env TUNNEL_PROVIDER or 'ngrok')")
     args = parser.parse_args()
 
     # 1. Setup Environment
@@ -194,7 +195,32 @@ def main():
             addr = f"{protocol}://localhost:{port}"
             public_url = ""
 
-            if provider == 'cloudflare':
+            if provider == 'pinggy':
+                print("PLEASE WAIT... Establishing Pinggy Tunnel...")
+                try:
+                    import pinggy
+                    pinggy_token = os.environ.get('PINGGY_TOKEN')  # Optional: for persistent subdomain
+                    pinggy_tunnel = pinggy.start_tunnel(
+                        forwardto=f"localhost:{port}",
+                        token=pinggy_token if pinggy_token else None,
+                        localservertls=(protocol == "https")
+                    )
+                    # Prefer HTTPS URL from the returned list
+                    tunnel_urls = pinggy_tunnel.urls if hasattr(pinggy_tunnel, 'urls') else []
+                    public_url = next((u for u in tunnel_urls if u.startswith('https://')), None)
+                    if not public_url and tunnel_urls:
+                        public_url = tunnel_urls[0]  # fallback to first URL
+                    if not public_url:
+                        print("❌ Failed to obtain a Pinggy URL.")
+                        sys.exit(1)
+                except ImportError:
+                    print("❌ Error: 'pinggy' package not found. Run: pip install pinggy")
+                    sys.exit(1)
+                except Exception as e:
+                    print(f"❌ Failed to start Pinggy Tunnel: {e}")
+                    sys.exit(1)
+
+            elif provider == 'cloudflare':
                 cf_name = os.environ.get('CLOUDFLARE_TUNNEL_NAME') or os.environ.get('CLOUDFLARE_TUNNEL_ID')
                 cf_custom_url = os.environ.get('CLOUDFLARE_TUNNEL_URL')
 
@@ -354,7 +380,12 @@ def main():
                     node_process.kill()
             
             if args.mode == 'web':
-                if provider == 'cloudflare' and 'cf_process' in locals():
+                if provider == 'pinggy' and 'pinggy_tunnel' in locals():
+                    try:
+                        pinggy_tunnel.stop()
+                    except Exception:
+                        pass
+                elif provider == 'cloudflare' and 'cf_process' in locals():
                     cf_process.terminate()
                 elif 'ngrok' in locals():
                     ngrok.kill()

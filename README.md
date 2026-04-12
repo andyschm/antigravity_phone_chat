@@ -79,7 +79,7 @@ Access your Antigravity session from **anywhere in the world** (Mobile Data, out
 
 ### Step 1: Choose a Tunnel Provider
 
-You can use either **ngrok** (easiest, requires account) or **Cloudflare Tunnel** (requires `cloudflared` installed).
+You can use **ngrok** (requires account), **Cloudflare Tunnel** (requires `cloudflared`), or **Pinggy** (free SSH tunnel, no account/install needed).
 
 #### Option A: ngrok (Default)
 1. **Get an ngrok Token**: Sign up for free at [ngrok.com](https://ngrok.com) and get your "Authtoken".
@@ -95,6 +95,14 @@ You can use either **ngrok** (easiest, requires account) or **Cloudflare Tunnel*
    ```env
    TUNNEL_PROVIDER=cloudflare
    ```
+
+#### Option C: Pinggy Tunnel
+1. **No Install Required**: Pinggy works via SSH and the Python SDK. The launcher will automatically install the `pinggy` pip package.
+2. **Setup**: Update your `.env` file:
+   ```env
+   TUNNEL_PROVIDER=pinggy
+   ```
+   *(Optional)* You can add `PINGGY_TOKEN=your-token` for a persistent subdomain if you have a Pinggy account.
 
 ### Step 2: Configuration
 1. **Automatic Configuration**: Simply run any launcher script. They will detect if `.env` is missing and automatically create it using `.env.example` as a template.

@@ -41,7 +41,7 @@ graph TD
     P -- GET /snapshot --> S
     P -- POST /login --> S
     S -- Cookie Auth --> P
-    T[ngrok Tunnel] -- Proxy --> S
+    T[ngrok/Cloudflare/Pinggy Tunnel] -- Proxy --> S
     P[Phone Frontend] -- Mobile Data --> T
     S -- CDP Commands --> AG
     PY[launcher.py Manager] -- Spawns/Kills --> S
@@ -100,7 +100,7 @@ graph TD
 ## Security & Authentication
 
 ### 1. Global Web Access (Tunneling)
-When using the `_web` launcher, the system utilizes `ngrok` to create a secure tunnel. 
+When using the `_web` launcher, the system utilizes `ngrok`, `cloudflare`, or `pinggy` to create a secure tunnel. 
 - **Unified Manager**: `launcher.py` acts as a supervisor, spawning the Node.js server as a child process. This ensures that when the tunnel is closed (Ctrl+C), the server is also reliably terminated.
 - **Magic Links**: In Web Mode, the launcher generates a "Magic QR Code" that includes the `?key=PASSWORD` parameter, allowing for instant, zero-typing auto-login on mobile.
 - **Auto-Protocol Detection**: `launcher.py` detects if the local server is running HTTPS and configures the tunnel accordingly.

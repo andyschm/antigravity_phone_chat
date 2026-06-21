@@ -62,6 +62,14 @@ echo "[INFO] .env configuration found."
 echo "[1/1] Launching Antigravity Phone Connect..."
 echo "(This will start both the server and the web tunnel)"
 
+# Parse optional command line flags (e.g., --reload)
+RELOAD_FLAG=""
+for arg in "$@"; do
+    if [ "$arg" = "--reload" ]; then
+        RELOAD_FLAG="--reload"
+    fi
+done
+
 # Create and use Virtual Environment to avoid PEP 668 issues
 if [ ! -d "venv" ]; then
     echo "[INFO] Creating Python virtual environment..."
@@ -177,7 +185,7 @@ if [ "$(uname)" = "Darwin" ]; then
     trap cleanup EXIT SIGINT SIGTERM
     
     # Run in background
-    $PYTHON_CMD launcher.py --mode web &
+    $PYTHON_CMD launcher.py --mode web $RELOAD_FLAG &
     LAUNCHER_PID=$!
     
     # Wait for the background process
@@ -185,7 +193,7 @@ if [ "$(uname)" = "Darwin" ]; then
     
 else
     # Non-macOS runs in foreground
-    $PYTHON_CMD launcher.py --mode web
+    $PYTHON_CMD launcher.py --mode web $RELOAD_FLAG
 fi
 
 # 6. Auto-close when done

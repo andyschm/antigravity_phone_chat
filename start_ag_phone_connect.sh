@@ -28,6 +28,14 @@ fi
 
 echo "[STARTING] Launching via Unified Launcher..."
 
+# Parse optional command line flags (e.g., --reload)
+RELOAD_FLAG=""
+for arg in "$@"; do
+    if [ "$arg" = "--reload" ]; then
+        RELOAD_FLAG="--reload"
+    fi
+done
+
 # Create and use Virtual Environment to avoid PEP 668 issues
 if [ ! -d "venv" ]; then
     echo "[INFO] Creating Python virtual environment..."
@@ -143,7 +151,7 @@ if [ "$(uname)" = "Darwin" ]; then
     trap cleanup EXIT SIGINT SIGTERM
     
     # Run in background
-    $PYTHON_CMD launcher.py --mode local &
+    $PYTHON_CMD launcher.py --mode local $RELOAD_FLAG &
     LAUNCHER_PID=$!
     
     # Wait for the background process
@@ -151,7 +159,7 @@ if [ "$(uname)" = "Darwin" ]; then
     
 else
     # Non-macOS runs in foreground
-    $PYTHON_CMD launcher.py --mode local
+    $PYTHON_CMD launcher.py --mode local $RELOAD_FLAG
     
     # Keep terminal open if server crashes
     echo ""

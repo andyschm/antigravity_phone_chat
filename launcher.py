@@ -113,6 +113,7 @@ def main():
     parser = argparse.ArgumentParser(description="Antigravity Phone Connect Launcher")
     parser.add_argument('--mode', choices=['local', 'web'], default='web', help="Mode to run in: 'local' (WiFi) or 'web' (Internet)")
     parser.add_argument('--provider', choices=['ngrok', 'cloudflare', 'pinggy'], help="Tunnel provider (defaults to .env TUNNEL_PROVIDER or 'ngrok')")
+    parser.add_argument('--reload', action='store_true', help="Automatically restart node server if source files change")
     args = parser.parse_args()
 
     # 1. Setup Environment
@@ -147,6 +148,9 @@ def main():
         f.write(f"--- Server Started at {time.ctime()} ---\n")
 
     node_cmd = ["node", "server.js"]
+    # If reload is enabled, use node's native watch flag to automatically reload the server on file changes.
+    if args.reload:
+        node_cmd = ["node", "--watch", "server.js"]
     node_process = None
     
     try:

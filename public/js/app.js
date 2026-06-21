@@ -44,6 +44,16 @@ let lastHash = '';
 let currentMode = 'Fast';
 let chatIsOpen = true; // Track if a chat is currently open
 let isFirstLoad = true; // Flag to force scroll to bottom on first load/context switch
+let isProgrammaticScroll = false;
+let programmaticScrollTimeout = null;
+
+function setProgrammaticScroll() {
+    isProgrammaticScroll = true;
+    clearTimeout(programmaticScrollTimeout);
+    programmaticScrollTimeout = setTimeout(() => {
+        isProgrammaticScroll = false;
+    }, 100);
+}
 
 
 // --- Auth Utilities ---
@@ -267,13 +277,56 @@ async function loadSnapshot() {
             '    --border-color: #334155;\n' +
             '}\n' +
             '\n' +
-            '#conversation, #chat, #cascade {\n' +
+            '#chatContent {\n' +
+            '    display: block !important;\n' +
+            '    height: auto !important;\n' +
+            '    min-height: 100% !important;\n' +
+            '}\n' +
+            '\n' +
+            'html body #chatContainer #chatContent #conversation,\n' +
+            'html body #chatContainer #chatContent #chat,\n' +
+            'html body #chatContainer #chatContent #cascade {\n' +
             '    background-color: transparent !important;\n' +
             '    color: var(--text-main) !important;\n' +
             '    font-family: \'Inter\', system-ui, sans-serif !important;\n' +
             '    position: relative !important;\n' +
             '    height: auto !important;\n' +
             '    width: 100% !important;\n' +
+            '    display: block !important;\n' +
+            '    overflow: visible !important;\n' +
+            '    overflow-y: visible !important;\n' +
+            '}\n' +
+            '\n' +
+            '/* Force inner scrollable containers to expand so only the outer chatContainer scrolls */\n' +
+            'html body #chatContainer #chatContent #conversation [class*="overflow"],\n' +
+            'html body #chatContainer #chatContent #chat [class*="overflow"],\n' +
+            'html body #chatContainer #chatContent #cascade [class*="overflow"],\n' +
+            'html body #chatContainer #chatContent #conversation [style*="overflow"],\n' +
+            'html body #chatContainer #chatContent #chat [style*="overflow"],\n' +
+            'html body #chatContainer #chatContent #cascade [style*="overflow"],\n' +
+            'html body #chatContainer #chatContent #conversation [data-scroll-area],\n' +
+            'html body #chatContainer #chatContent #chat [data-scroll-area],\n' +
+            'html body #chatContainer #chatContent #cascade [data-scroll-area],\n' +
+            'html body #chatContainer #chatContent #conversation [style*="container-type"],\n' +
+            'html body #chatContainer #chatContent #chat [style*="container-type"],\n' +
+            'html body #chatContainer #chatContent #cascade [style*="container-type"],\n' +
+            'html body #chatContainer #chatContent #conversation .monaco-scrollable-element,\n' +
+            'html body #chatContainer #chatContent #chat .monaco-scrollable-element,\n' +
+            'html body #chatContainer #chatContent #cascade .monaco-scrollable-element,\n' +
+            'html body #chatContainer #chatContent #conversation .monaco-list-rows,\n' +
+            'html body #chatContainer #chatContent #chat .monaco-list-rows,\n' +
+            'html body #chatContainer #chatContent #cascade .monaco-list-rows {\n' +
+            '    overflow: visible !important;\n' +
+            '    overflow-y: visible !important;\n' +
+            '    height: auto !important;\n' +
+            '    min-height: 0 !important;\n' +
+            '    max-height: none !important;\n' +
+            '    container-type: normal !important;\n' +
+            '    display: block !important;\n' +
+            '    flex: none !important;\n' +
+            '    flex-grow: 0 !important;\n' +
+            '    flex-shrink: 1 !important;\n' +
+            '    flex-basis: auto !important;\n' +
             '}\n' +
             '\n' +
             '/* Fix stacking BUT preserve absolute/fixed positioning for dropdowns */\n' +
@@ -465,11 +518,14 @@ async function loadSnapshot() {
         // Smart scroll behavior: respect user scroll, only auto-scroll when appropriate.
         // We restore scroll immediately to prevent user-visible flickering or scroll jumping.
         if (isUserScrollLocked) {
-            const scrollPercent = scrollHeight > 0 ? scrollPos / scrollHeight : 0;
-            chatContainer.scrollTop = chatContainer.scrollHeight * scrollPercent;
+            const maxScroll = scrollHeight - clientHeight;
+            const scrollPercent = maxScroll > 0 ? scrollPos / maxScroll : 0;
+            setProgrammaticScroll();
+            chatContainer.scrollTop = (chatContainer.scrollHeight - clientHeight) * scrollPercent;
         } else if (isNearBottom) {
             scrollToBottom(true);
         } else {
+            setProgrammaticScroll();
             chatContainer.scrollTop = scrollPos;
         }
 
@@ -478,11 +534,14 @@ async function loadSnapshot() {
         // or mobile keyboard viewport resizing transitions.
         requestAnimationFrame(() => {
             if (isUserScrollLocked) {
-                const scrollPercent = scrollHeight > 0 ? scrollPos / scrollHeight : 0;
-                chatContainer.scrollTop = chatContainer.scrollHeight * scrollPercent;
+                const maxScroll = scrollHeight - clientHeight;
+                const scrollPercent = maxScroll > 0 ? scrollPos / maxScroll : 0;
+                setProgrammaticScroll();
+                chatContainer.scrollTop = (chatContainer.scrollHeight - clientHeight) * scrollPercent;
             } else if (isNearBottom) {
                 scrollToBottom(true);
             } else {
+                setProgrammaticScroll();
                 chatContainer.scrollTop = scrollPos;
             }
         });
@@ -645,6 +704,7 @@ async function copyToClipboard(text) {
 }
 
 function scrollToBottom(instant = false) {
+    setProgrammaticScroll();
     chatContainer.scrollTo({
         top: chatContainer.scrollHeight,
         behavior: instant ? 'auto' : 'smooth'
@@ -779,16 +839,27 @@ async function syncScrollToDesktop() {
 }
 
 chatContainer.addEventListener('scroll', () => {
+    const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
+    
+    if (isProgrammaticScroll) {
+        if (isNearBottom) {
+            scrollToBottomBtn.classList.remove('show');
+        } else {
+            scrollToBottomBtn.classList.add('show');
+        }
+        return;
+    }
+
     userIsScrolling = true;
     // Set a lock to prevent auto-scroll jumping for a few seconds
     userScrollLockUntil = Date.now() + USER_SCROLL_LOCK_DURATION;
     clearTimeout(idleTimer);
 
-    const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
     if (isNearBottom) {
         scrollToBottomBtn.classList.remove('show');
         // If user scrolled to bottom, clear the lock so auto-scroll works
         userScrollLockUntil = 0;
+        userIsScrolling = false; // Resume updates immediately
     } else {
         scrollToBottomBtn.classList.add('show');
     }

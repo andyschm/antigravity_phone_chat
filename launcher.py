@@ -385,6 +385,8 @@ def main():
                                 print("   3. Or use the 'Open with Antigravity (Debug)' context menu.")
                                 print("!"*50 + "\n")
                                 cdp_warning_shown = True
+                            if "Restarting '" in line or "Restarting " in line:
+                                print("🔄 Reloading server...", flush=True)
             except Exception:
                 pass
 

@@ -43,6 +43,7 @@ let idleTimer = null;
 let lastHash = '';
 let currentMode = 'Fast';
 let chatIsOpen = true; // Track if a chat is currently open
+let isFirstLoad = true; // Flag to force scroll to bottom on first load/context switch
 
 
 // --- Auth Utilities ---
@@ -236,8 +237,9 @@ async function loadSnapshot() {
         const scrollPos = chatContainer.scrollTop;
         const scrollHeight = chatContainer.scrollHeight;
         const clientHeight = chatContainer.clientHeight;
-        const isNearBottom = scrollHeight - scrollPos - clientHeight < 120;
+        const isNearBottom = (scrollHeight - scrollPos - clientHeight < 120) || isFirstLoad;
         const isUserScrollLocked = Date.now() < userScrollLockUntil;
+        isFirstLoad = false;
 
         // --- UPDATE STATS ---
         if (data.stats) {
@@ -462,9 +464,9 @@ async function loadSnapshot() {
             const scrollPercent = scrollHeight > 0 ? scrollPos / scrollHeight : 0;
             const newScrollPos = chatContainer.scrollHeight * scrollPercent;
             chatContainer.scrollTop = newScrollPos;
-        } else if (isNearBottom || scrollPos === 0) {
-            // User was at bottom or hasn't scrolled - auto scroll to bottom
-            scrollToBottom();
+        } else if (isNearBottom) {
+            // User was at bottom or it is first load - auto scroll to bottom instantly
+            scrollToBottom(true);
         } else {
             // Preserve exact scroll position
             chatContainer.scrollTop = scrollPos;
@@ -627,10 +629,10 @@ async function copyToClipboard(text) {
     return false;
 }
 
-function scrollToBottom() {
+function scrollToBottom(instant = false) {
     chatContainer.scrollTo({
         top: chatContainer.scrollHeight,
-        behavior: 'smooth'
+        behavior: instant ? 'auto' : 'smooth'
     });
 }
 
@@ -821,6 +823,7 @@ stopBtn.addEventListener('click', async () => {
 
 // --- New Chat Logic ---
 async function startNewChat() {
+    isFirstLoad = true;
     newChatBtn.style.opacity = '0.5';
     newChatBtn.style.pointerEvents = 'none';
 
@@ -969,6 +972,7 @@ historyBtn.addEventListener('click', showChatHistory);
 
 // --- Select Chat from History ---
 async function selectChat(title) {
+    isFirstLoad = true;
     // Visual reset while desktop switches conversation
     chatContent.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><p>Switching Conversation...</p></div>';
 
@@ -1188,6 +1192,7 @@ projectBtn.addEventListener('click', async () => {
 
                 div.addEventListener('click', async () => {
                     closeModal();
+                    isFirstLoad = true;
                     
                     const prev = projectText.textContent;
                     projectText.textContent = 'Switching...';

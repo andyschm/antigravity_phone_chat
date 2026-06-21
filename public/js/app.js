@@ -18,6 +18,8 @@ const modalList = document.getElementById('modalList');
 const modalTitle = document.getElementById('modalTitle');
 const modeText = document.getElementById('modeText');
 const modelText = document.getElementById('modelText');
+const projectBtn = document.getElementById('projectBtn');
+const projectText = document.getElementById('projectText');
 const historyLayer = document.getElementById('historyLayer');
 const historyList = document.getElementById('historyList');
 
@@ -79,6 +81,14 @@ async function fetchAppState() {
         // Model Sync - Desktop is source of truth
         if (data.model && data.model !== 'Unknown') {
             modelText.textContent = data.model;
+        }
+
+        // Project Sync - Display which workspace/folder is connected
+        if (data.projectName) {
+            projectText.textContent = data.projectName;
+            if (data.projectTitle) {
+                projectBtn.title = data.projectTitle;
+            }
         }
 
         console.log('[SYNC] State refreshed from Desktop:', data);
@@ -145,13 +155,33 @@ const MODELS = [
 ];
 
 // --- WebSocket ---
+let editorIsConnected = false;
+
+function updateStatusBadge() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        if (editorIsConnected) {
+            statusDot.classList.remove('disconnected');
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Live';
+        } else {
+            statusDot.classList.remove('connected');
+            statusDot.classList.add('disconnected');
+            statusText.textContent = 'Editor Offline';
+        }
+    } else {
+        statusDot.classList.remove('connected');
+        statusDot.classList.add('disconnected');
+        statusText.textContent = 'Reconnecting';
+    }
+}
+
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${window.location.host}`);
 
     ws.onopen = () => {
         console.log('WS Connected');
-        updateStatus(true);
+        updateStatusBadge();
         loadSnapshot();
     };
 
@@ -161,6 +191,10 @@ function connectWebSocket() {
             window.location.href = '/login.html';
             return;
         }
+        if (data.type === 'status_update') {
+            editorIsConnected = data.cdpConnected;
+            updateStatusBadge();
+        }
         if (data.type === 'snapshot_update' && autoRefreshEnabled && !userIsScrolling) {
             loadSnapshot();
         }
@@ -168,21 +202,9 @@ function connectWebSocket() {
 
     ws.onclose = () => {
         console.log('WS Disconnected');
-        updateStatus(false);
+        updateStatusBadge();
         setTimeout(connectWebSocket, 2000);
     };
-}
-
-function updateStatus(connected) {
-    if (connected) {
-        statusDot.classList.remove('disconnected');
-        statusDot.classList.add('connected');
-        statusText.textContent = 'Live';
-    } else {
-        statusDot.classList.remove('connected');
-        statusDot.classList.add('disconnected');
-        statusText.textContent = 'Reconnecting';
-    }
 }
 
 // --- Rendering ---
@@ -1120,6 +1142,95 @@ modelBtn.addEventListener('click', async () => {
             });
             modalList.appendChild(div);
         });
+    }
+});
+
+projectBtn.addEventListener('click', async () => {
+    // Open immediately with loading state
+    openModal('Select Project', ['Loading active projects...'], () => {});
+
+    // Disable clicking the loading option and render spinner
+    const loadingOpt = modalList.querySelector('.modal-option');
+    if (loadingOpt) {
+        loadingOpt.style.opacity = '0.7';
+        loadingOpt.style.pointerEvents = 'none';
+        loadingOpt.innerHTML = '<span class="spinner-small"></span> Loading active projects...';
+    }
+
+    try {
+        const res = await fetchWithAuth('/projects');
+        const data = await res.json();
+        
+        if (modalOverlay.classList.contains('show') && modalTitle.textContent === 'Select Project') {
+            modalList.innerHTML = '';
+            
+            const projects = data.projects || [];
+            if (projects.length === 0) {
+                const div = document.createElement('div');
+                div.className = 'modal-option';
+                div.style.opacity = '0.7';
+                div.style.pointerEvents = 'none';
+                div.textContent = 'No open projects found';
+                modalList.appendChild(div);
+                return;
+            }
+
+            projects.forEach(project => {
+                const div = document.createElement('div');
+                div.className = 'modal-option';
+                
+                // Show current indicator/checkmark if active
+                if (project.current) {
+                    div.innerHTML = `✅ <b>${escapeHtml(project.projectName)}</b> <span style="font-size: 11px; opacity: 0.5;">(${escapeHtml(project.title)})</span>`;
+                } else {
+                    div.innerHTML = `${escapeHtml(project.projectName)} <span style="font-size: 11px; opacity: 0.5;">(${escapeHtml(project.title)})</span>`;
+                }
+
+                div.addEventListener('click', async () => {
+                    closeModal();
+                    
+                    const prev = projectText.textContent;
+                    projectText.textContent = 'Switching...';
+                    
+                    try {
+                        const switchRes = await fetchWithAuth('/select-project', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                url: project.url,
+                                title: project.title,
+                                port: project.port
+                            })
+                        });
+                        const switchData = await switchRes.json();
+                        
+                        if (switchData.success) {
+                            projectText.textContent = switchData.projectName;
+                            // Trigger immediate snapshot refresh
+                            loadSnapshot();
+                            fetchAppState();
+                        } else {
+                            alert('Failed to switch project: ' + (switchData.error || 'Unknown'));
+                            projectText.textContent = prev;
+                        }
+                    } catch (e) {
+                        projectText.textContent = prev;
+                    }
+                });
+                modalList.appendChild(div);
+            });
+        }
+    } catch (e) {
+        console.error('Failed to load projects', e);
+        if (modalOverlay.classList.contains('show') && modalTitle.textContent === 'Select Project') {
+            modalList.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = 'modal-option';
+            div.style.opacity = '0.7';
+            div.style.pointerEvents = 'none';
+            div.textContent = 'Failed to load projects';
+            modalList.appendChild(div);
+        }
     }
 });
 

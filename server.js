@@ -44,6 +44,10 @@ let userSelectedUrl = null;
 let userSelectedTitle = null;
 let userSelectedPort = null;
 
+// Track if the user is currently switching projects, to prevent the background poll
+// loop from concurrently initiating auto-discovery and reverting the connection.
+let isSwitchingProject = false;
+
 // Kill any existing process on the server port (prevents EADDRINUSE)
 function killPortProcess(port) {
     try {
@@ -1849,6 +1853,12 @@ async function startPolling(wss) {
     let consecutiveFailures = 0;
 
     const poll = async () => {
+        // Prevent concurrent connection attempts if a project switch is currently in progress.
+        if (isSwitchingProject) {
+            setTimeout(poll, POLL_INTERVAL);
+            return;
+        }
+
         if (!cdpConnection || (cdpConnection.ws && cdpConnection.ws.readyState !== WebSocket.OPEN)) {
             if (!isConnecting) {
                 console.log('🔍 Looking for Antigravity CDP connection...');
@@ -2530,6 +2540,7 @@ async function main() {
 
             console.log(`🔄 User requested switch to project: ${title || url} on port ${port || 'unknown'}`);
             
+            isSwitchingProject = true;
             try {
                 // Close existing connection
                 if (cdpConnection) {
@@ -2559,6 +2570,8 @@ async function main() {
             } catch (err) {
                 console.error(`❌ Failed to switch project: ${err.message}`);
                 res.status(500).json({ error: `Failed to connect: ${err.message}` });
+            } finally {
+                isSwitchingProject = false;
             }
         });
 

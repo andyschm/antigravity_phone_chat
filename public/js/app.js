@@ -448,6 +448,11 @@ async function loadSnapshot() {
         styleTag.textContent = darkModeOverrides;
         chatContent.innerHTML = data.html;
 
+        // Force a synchronous layout reflow to make sure the browser calculates the new
+        // element heights before we read or write any scroll positions. This prevents
+        // scroll position clamping and snapping to top during dynamic HTML updates.
+        void chatContainer.scrollHeight;
+
         // Apply parent classes to body so VS Code / theme styles apply correctly
         if (data.parentClasses && data.parentClasses.length > 0) {
             document.body.className = data.parentClasses.join(' ');
@@ -457,20 +462,30 @@ async function loadSnapshot() {
         // Add mobile copy buttons to all code blocks
         addMobileCopyButtons();
 
-        // Smart scroll behavior: respect user scroll, only auto-scroll when appropriate
+        // Smart scroll behavior: respect user scroll, only auto-scroll when appropriate.
+        // We restore scroll immediately to prevent user-visible flickering or scroll jumping.
         if (isUserScrollLocked) {
-            // User recently scrolled - try to maintain their approximate position
-            // Use percentage-based restoration for better accuracy
             const scrollPercent = scrollHeight > 0 ? scrollPos / scrollHeight : 0;
-            const newScrollPos = chatContainer.scrollHeight * scrollPercent;
-            chatContainer.scrollTop = newScrollPos;
+            chatContainer.scrollTop = chatContainer.scrollHeight * scrollPercent;
         } else if (isNearBottom) {
-            // User was at bottom or it is first load - auto scroll to bottom instantly
             scrollToBottom(true);
         } else {
-            // Preserve exact scroll position
             chatContainer.scrollTop = scrollPos;
         }
+
+        // We re-apply the scroll position on the next paint (animation frame). This handles
+        // cases where layout reflow is asynchronous or delayed by font loading, rendering,
+        // or mobile keyboard viewport resizing transitions.
+        requestAnimationFrame(() => {
+            if (isUserScrollLocked) {
+                const scrollPercent = scrollHeight > 0 ? scrollPos / scrollHeight : 0;
+                chatContainer.scrollTop = chatContainer.scrollHeight * scrollPercent;
+            } else if (isNearBottom) {
+                scrollToBottom(true);
+            } else {
+                chatContainer.scrollTop = scrollPos;
+            }
+        });
 
     } catch (err) {
         console.error(err);

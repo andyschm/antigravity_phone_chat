@@ -911,3 +911,19 @@ textarea::-webkit-scrollbar {
     vertical-align: middle;
     margin-right: 8px;
 }
+
+/* Custom header adjustments: hide mode selector and support CTA, style project selector */
+#modeBtn, #supportBtn {
+    display: none !important;
+}
+
+#projectBtn {
+    max-width: 45%;
+}
+
+#projectText {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}

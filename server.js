@@ -126,7 +126,13 @@ function getJson(url) {
     });
 }
 
-// Clean VS Code title to extract folder/project name
+// Clean VS Code title to extract folder/project name.
+// Supports custom window title configurations that use space-surrounded dashes.
+function cleanSSHPrefixSuffix(name) {
+    if (!name) return '';
+    return name.replace(/\s*\[SSH:[^\]]+\]\s*$/, '').trim();
+}
+
 function cleanProjectName(title) {
     if (!title) return 'Unknown Project';
     
@@ -135,14 +141,106 @@ function cleanProjectName(title) {
                      .replace(/^\[Extension Development Host\]\s*-\s*/, '')
                      .trim();
                      
-    // If it's in the format "file_name - folder_name", extract folder_name
-    // In VS Code, the title is typically "File Name - Project Name"
-    const parts = clean.split(/\s*-\s*/);
+    // Split on space-surrounded dashes: em-dash, en-dash, double-hyphen, or standard hyphen
+    const parts = clean.split(/\s+(?:[\u2014\u2013-]|--)\s+/);
     if (parts.length > 1) {
-        // Return the last part, which is usually the workspace or folder name
-        return parts[parts.length - 1];
+        const first = parts[0].trim();
+        const last = parts[parts.length - 1].trim();
+        
+        // Detect which part is the file name vs the workspace folder
+        const lastHasExtension = /\.[a-zA-Z0-9]{1,5}$/.test(last);
+        const firstHasExtension = /\.[a-zA-Z0-9]{1,5}$/.test(first);
+        
+        if (lastHasExtension && !firstHasExtension) {
+            return cleanSSHPrefixSuffix(first);
+        } else if (firstHasExtension && !lastHasExtension) {
+            return cleanSSHPrefixSuffix(last);
+        } else {
+            return cleanSSHPrefixSuffix(first);
+        }
     }
-    return clean;
+    return cleanSSHPrefixSuffix(clean);
+}
+
+// Retrieve workspace details via CDP. This is faster and more reliable than
+// trying to parse window titles because VS Code can be configured to show titles
+// in many different formats, or show only the current file name.
+async function getWorkspaceDetails(wsUrl) {
+    return new Promise((resolve) => {
+        const ws = new WebSocket(wsUrl);
+        let cleanedUp = false;
+        const cleanup = () => {
+            if (cleanedUp) return;
+            cleanedUp = true;
+            try { ws.close(); } catch (e) {}
+        };
+        const timeout = setTimeout(() => {
+            cleanup();
+            resolve(null);
+        }, 500);
+
+        ws.on('open', async () => {
+            let id = 1;
+            const call = (method, params) => new Promise((resCall) => {
+                const msgId = id++;
+                const handler = (dataStr) => {
+                    const data = JSON.parse(dataStr);
+                    if (data.id === msgId) {
+                        ws.off('message', handler);
+                        resCall(data.result);
+                    }
+                };
+                ws.on('message', handler);
+                ws.send(JSON.stringify({ id: msgId, method, params }));
+            });
+
+            try {
+                await call("Runtime.enable", {});
+                const evalRes = await call("Runtime.evaluate", {
+                    expression: `(() => {
+                        try {
+                            const config = window.vscode.context.configuration();
+                            return {
+                                path: config.workspace ? config.workspace.uri.path : null,
+                                title: document.title
+                            };
+                        } catch (e) {
+                            return null;
+                        }
+                    })()`,
+                    returnByValue: true
+                });
+                clearTimeout(timeout);
+                cleanup();
+                if (evalRes && evalRes.result && evalRes.result.value) {
+                    resolve(evalRes.result.value);
+                } else {
+                    resolve(null);
+                }
+            } catch (e) {
+                clearTimeout(timeout);
+                cleanup();
+                resolve(null);
+            }
+        });
+
+        ws.on('error', () => {
+            clearTimeout(timeout);
+            cleanup();
+            resolve(null);
+        });
+    });
+}
+
+function getProjectNameFromDetails(details, title) {
+    if (details && details.path) {
+        const normalizedPath = details.path.replace(/\\/g, '/').replace(/\/+$/, '');
+        const folderName = normalizedPath.split('/').pop();
+        if (folderName) {
+            return folderName;
+        }
+    }
+    return cleanProjectName(title);
 }
 
 // Find a project's details by its debugger URL
@@ -156,10 +254,15 @@ async function findProjectByUrl(url) {
             const list = await getJson(`http://127.0.0.1:${port}/json/list`);
             const matched = list.find(t => t.webSocketDebuggerUrl === url);
             if (matched) {
+                let projectName = cleanProjectName(matched.title);
+                const details = await getWorkspaceDetails(matched.webSocketDebuggerUrl);
+                if (details) {
+                    projectName = getProjectNameFromDetails(details, matched.title);
+                }
                 return {
                     id: matched.id,
                     title: matched.title,
-                    projectName: cleanProjectName(matched.title),
+                    projectName: projectName,
                     port: port,
                     url: matched.webSocketDebuggerUrl
                 };
@@ -2562,6 +2665,7 @@ async function main() {
         // Get Available Projects
         app.get('/projects', async (req, res) => {
             const projects = [];
+            const promises = [];
             for (const port of PORTS) {
                 try {
                     const list = await getJson(`http://127.0.0.1:${port}/json/list`);
@@ -2573,20 +2677,30 @@ async function main() {
                     for (const wb of workbenches) {
                         if (wb.webSocketDebuggerUrl) {
                             const isCurrent = !!cdpConnection && cdpConnection.url === wb.webSocketDebuggerUrl;
-                            projects.push({
+                            const projectObj = {
                                 id: wb.id,
                                 title: wb.title,
                                 projectName: cleanProjectName(wb.title),
                                 port: port,
                                 url: wb.webSocketDebuggerUrl,
                                 current: isCurrent
-                            });
+                            };
+                            projects.push(projectObj);
+                            
+                            // Retrieve actual workspace path via CDP concurrently to resolve exact project folder name
+                            promises.push((async () => {
+                                const details = await getWorkspaceDetails(wb.webSocketDebuggerUrl);
+                                if (details) {
+                                    projectObj.projectName = getProjectNameFromDetails(details, wb.title);
+                                }
+                            })());
                         }
                     }
                 } catch (e) {
                     // Port not responsive, ignore
                 }
             }
+            await Promise.all(promises);
             res.json({ success: true, projects });
         });
 
@@ -2625,7 +2739,16 @@ async function main() {
                 // Broadcast status update
                 broadcastStatus(wss);
                 
-                res.json({ success: true, projectName: cleanProjectName(userSelectedTitle) });
+                // Fetch the actual workspace/project name dynamically after connection
+                let finalProjectName = cleanProjectName(userSelectedTitle);
+                try {
+                    const match = await findProjectByUrl(url);
+                    if (match) {
+                        finalProjectName = match.projectName;
+                    }
+                } catch (e) {}
+                
+                res.json({ success: true, projectName: finalProjectName });
             } catch (err) {
                 console.error(`❌ Failed to switch project: ${err.message}`);
                 res.status(500).json({ error: `Failed to connect: ${err.message}` });

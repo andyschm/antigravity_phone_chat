@@ -1,36 +1,42 @@
-# Repository Branching & Integration Workflow
+# Repository Branching & Integration Workflow (Main-First Strategy)
 
-This project uses a custom Git workflow designed to keep feature branches clean for upstream PRs while maintaining a combined `main` branch for local development, testing, and deployments.
+This project uses a "Main-First" development and extraction workflow. This ensures that you can test all features combined in a single runtime environment while still easily separating and packaging clean, isolated feature branches for upstream PRs.
 
 ## Branch Roles
 
 1. **`upstream-master`**
    * **Role:** Tracks the upstream base branch (`origin/master` from `krishnakanthb13/antigravity_phone_chat`) exactly.
    * **Rule:** Never commit directly to this branch. It should only be updated by pulling from the upstream repository.
-   
-2. **`feat/*` (Feature Branches)**
-   * **Role:** Dedicated branches for individual features or fixes (e.g., `feat/oauth2-proxy-auth-bypass`).
-   * **Rule:** Always branch off `upstream-master` (`git checkout -b feat/my-feature upstream-master`). Push these branches to your personal fork (`fork`) to create Pull Requests.
-   
-3. **`main`**
-   * **Role:** The integration branch where all active features are combined. This is the default branch of your fork.
-   * **Rule:** **Never commit directly to `main`** or use it to generate upstream PRs. It is rebuilt or updated by merging your individual `feat/*` branches.
+
+2. **`main` (Development & Integration Branch)**
+   * **Role:** The main branch of your fork. All active development, testing, and combined feature implementation happens directly here.
+   * **Rule:** Do not submit PRs directly from `main` to the upstream repository. It is used as the base from which clean feature branches are extracted.
+
+3. **`feat/*` (PR Feature Branches)**
+   * **Role:** Pristine, isolated branches containing only the changes relevant to a specific feature/fix for upstream PRs.
+   * **Rule:** These branches are created off `upstream-master`. Code is extracted from `main` onto them before they are pushed to your personal fork (`fork`) to open PRs.
 
 ---
 
 ## Instructions
 
-When working on this repository, you **must** follow these branch management rules:
+When working on this repository, you **must** follow these rules:
 
-1. **Creating new features:**
-   * Always switch to `upstream-master` first.
-   * Pull the latest changes from upstream: `git pull origin master`.
-   * Create a new branch off `upstream-master`: `git checkout -b feat/your-feature-name upstream-master`.
-   * Do all your work and commits in that feature branch.
+1. **Developing Features:**
+   * Do all your active coding, testing, and debugging on the `main` branch.
+   * Verify all features work together in this combined environment.
 
-2. **Integrating features into `main`:**
-   * Do not commit your changes directly to `main`.
-   * Once a feature is ready or updated, merge it into `main` alongside other active feature branches.
+2. **Packaging a Feature for Upstream PR:**
+   * Create a clean branch starting from the latest `upstream-master`:
+     ```bash
+     git checkout -b feat/your-feature-name upstream-master
+     ```
+   * Extract only the files/changes belonging to the feature from `main`:
+     ```bash
+     git checkout main -- path/to/file1 path/to/file2
+     ```
+     *(If a file contains changes for multiple features, use `git checkout -p main -- path/to/file` or `git add -p` to stage only the relevant lines.)*
+   * Commit the changes using Conventional Commits format and push to your fork to open the PR.
 
 ---
 
@@ -42,21 +48,26 @@ git checkout upstream-master
 git pull origin master
 ```
 
-### 2. Update and clean a feature branch
+### 2. Update the main development branch
+To bring latest upstream changes into your combined local environment:
 ```bash
-git checkout feat/your-feature
-git rebase upstream-master
+git checkout main
+git merge upstream-master --no-edit
 ```
 
-### 3. Rebuild the combined `main` branch (Recommended)
-Because feature branches undergo changes and history rewrites, the cleanest way to update `main` is to recreate it from `upstream-master` and merge the active features:
+### 3. Extracting and staging a feature PR branch
 ```bash
-# Overwrite main with upstream-master
-git checkout -B main upstream-master
+# 1. Update tracking branch
+git checkout upstream-master
+git pull origin master
 
-# Merge all active feature branches
-git merge feat/audio-upload-recorder --no-edit
-git merge feat/ide-integration-improvements --no-edit
-git merge feat/mac-auto-launch-and-qr-fix --no-edit
-git merge feat/oauth2-proxy-auth-bypass --no-edit
+# 2. Create clean feature branch
+git checkout -b feat/my-new-feature upstream-master
+
+# 3. Extract specific files from main
+git checkout main -- public/index.html server.js
+
+# 4. Commit and push
+git commit -m "feat(scope): descriptive message"
+git push fork feat/my-new-feature
 ```

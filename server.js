@@ -2039,7 +2039,22 @@ async function createServer() {
         }
     });
 
-    app.use(express.static(join(__dirname, 'public')));
+    // Set static assets serving with conditional caching headers for developer mode.
+    // If DEV_MODE=1 is set, we bypass browser and CDN (Cloudflare) caching for code files (.js, .css, .html)
+    // to allow rapid iterations without manual cache clearing.
+    const isDevMode = process.env.DEV_MODE === '1';
+    app.use(express.static(join(__dirname, 'public'), {
+        setHeaders: (res, filePath) => {
+            if (isDevMode) {
+                const ext = filePath.split('.').pop()?.toLowerCase();
+                if (ext === 'js' || ext === 'css' || ext === 'html') {
+                    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+                    res.setHeader('Pragma', 'no-cache');
+                    res.setHeader('Expires', '0');
+                }
+            }
+        }
+    }));
 
     // Login endpoint
     app.post('/login', (req, res) => {

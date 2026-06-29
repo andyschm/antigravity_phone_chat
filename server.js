@@ -2068,7 +2068,10 @@ async function createServer() {
             return res.status(503).json({ error: 'No snapshot available yet' });
         }
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.json(lastSnapshot);
+        res.json({
+            ...lastSnapshot,
+            domDebug: process.env.DOM_DEBUG === '1'
+        });
     });
 
     // Health check endpoint

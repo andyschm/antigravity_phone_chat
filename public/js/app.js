@@ -252,11 +252,19 @@ async function loadSnapshot() {
         isFirstLoad = false;
 
         // --- UPDATE STATS ---
-        if (data.stats) {
-            const kbs = Math.round((data.stats.htmlSize + data.stats.cssSize) / 1024);
-            const nodes = data.stats.nodes;
-            const statsText = document.getElementById('statsText');
-            if (statsText) statsText.textContent = `${nodes} Nodes · ${kbs}KB`;
+        const syncStats = document.getElementById('syncStats');
+        if (syncStats) {
+            if (data.domDebug) {
+                syncStats.style.display = 'flex';
+                if (data.stats) {
+                    const kbs = Math.round((data.stats.htmlSize + data.stats.cssSize) / 1024);
+                    const nodes = data.stats.nodes;
+                    const statsText = document.getElementById('statsText');
+                    if (statsText) statsText.textContent = `${nodes} Nodes · ${kbs}KB`;
+                }
+            } else {
+                syncStats.style.display = 'none';
+            }
         }
 
         // --- CSS INJECTION (Cached) ---

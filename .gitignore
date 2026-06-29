@@ -47,3 +47,6 @@ include/
 lib/
 lib64/
 share/
+
+# Git Worktrees
+worktrees/

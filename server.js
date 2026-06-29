@@ -25,7 +25,7 @@ const APP_PASSWORD = process.env.APP_PASSWORD || 'antigravity';
 const AUTH_COOKIE_NAME = 'ag_auth_token';
 
 // Security warning for default credentials
-if (APP_PASSWORD === 'antigravity') {
+if (process.env.AUTH_TYPE !== 'oauth2_proxy' && APP_PASSWORD === 'antigravity') {
     console.warn('\n\x1b[33m%s\x1b[0m', '⚠️  SECURITY WARNING: Using default APP_PASSWORD ("antigravity").');
     console.warn('\x1b[33m%s\x1b[0m', '   Set a strong APP_PASSWORD in your .env file for production use.\n');
 }
@@ -2001,6 +2001,10 @@ async function createServer() {
 
     // Auth Middleware
     app.use((req, res, next) => {
+        if (process.env.AUTH_TYPE === 'oauth2_proxy') {
+            return next();
+        }
+
         const publicPaths = ['/login', '/login.html', '/favicon.ico'];
         if (publicPaths.includes(req.path) || req.path.startsWith('/css/')) {
             return next();
@@ -2399,7 +2403,9 @@ async function createServer() {
         let isAuthenticated = false;
 
         // Exempt local Wi-Fi devices from authentication
-        if (isLocalRequest(req)) {
+        if (process.env.AUTH_TYPE === 'oauth2_proxy') {
+            isAuthenticated = true;
+        } else if (isLocalRequest(req)) {
             isAuthenticated = true;
         } else if (signedToken) {
             const sessionSecret = process.env.SESSION_SECRET || 'antigravity_secret_key_1337';

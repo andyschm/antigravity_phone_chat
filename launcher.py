@@ -134,11 +134,16 @@ def main():
     provider = args.provider or os.environ.get('TUNNEL_PROVIDER', 'ngrok').lower()
     
     # Setup App Password
-    passcode = os.environ.get('APP_PASSWORD')
-    if not passcode:
-        passcode = generate_passcode()
-        os.environ['APP_PASSWORD'] = passcode # Set for child process
-        print(f"⚠️  No APP_PASSWORD in .env. Using temporary: {passcode}")
+    auth_type = os.environ.get('AUTH_TYPE')
+    is_oauth2 = auth_type == 'oauth2_proxy'
+    
+    passcode = None
+    if not is_oauth2:
+        passcode = os.environ.get('APP_PASSWORD')
+        if not passcode:
+            passcode = generate_passcode()
+            os.environ['APP_PASSWORD'] = passcode # Set for child process
+            print(f"⚠️  No APP_PASSWORD in .env. Using temporary: {passcode}")
 
     # 2. Start Node.js Server (Common to both modes)
     print(f"🚀 Starting Antigravity Server ({args.mode.upper()} mode)...")
@@ -324,25 +329,38 @@ def main():
                 public_url = tunnel.public_url
             
             # Magic URL with password
-            final_url = f"{public_url}?key={passcode}"
+            if passcode:
+                final_url = f"{public_url}?key={passcode}"
+            else:
+                final_url = public_url
             
             print("\n" + "="*50)
             print(f"   🌍 GLOBAL WEB ACCESS ({provider.upper()})")
             print("="*50)
             print(f"🔗 Base URL: {public_url}")
-            print(f"🔑 Passcode: {passcode}")
+            if passcode:
+                print(f"🔑 Passcode: {passcode}")
             
-            print("\n📱 Scan this Magic QR Code (Auto-Logins):")
+            if passcode:
+                print("\n📱 Scan this Magic QR Code (Auto-Logins):")
+            else:
+                print("\n📱 Scan this QR Code to connect:")
             print_qr(final_url)
 
             print("-" * 50)
             print("📝 Steps to Connect:")
             print("1. Switch your phone to Mobile Data or Turn off Wi-Fi.")
             print("2. Open your phone's Camera app or a QR scanner.")
-            print("3. Scan the code above to auto-login.")
+            if passcode:
+                print("3. Scan the code above to auto-login.")
+            else:
+                print("3. Scan the code above to connect.")
             print(f"4. Or visit {public_url}")
-            print(f"5. Enter passcode: {passcode}")
-            print("6. You should be connected automatically!")
+            if passcode:
+                print(f"5. Enter passcode: {passcode}")
+                print("6. You should be connected automatically!")
+            else:
+                print("5. You should be connected automatically!")
 
         print("="*50)
         print("✅ Server is running in background. Logs -> server_log.txt")

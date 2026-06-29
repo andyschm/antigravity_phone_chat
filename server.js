@@ -18,13 +18,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PORTS = [9000, 9001, 9002, 9003];
+const IS_DEBUG = process.env.DEBUG === 'true';
 const POLL_INTERVAL = 1000; // 1 second
 const SERVER_PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || 'antigravity';
 const AUTH_COOKIE_NAME = 'ag_auth_token';
 
 // Security warning for default credentials
-if (APP_PASSWORD === 'antigravity') {
+if (process.env.AUTH_TYPE !== 'oauth2_proxy' && APP_PASSWORD === 'antigravity') {
     console.warn('\n\x1b[33m%s\x1b[0m', '⚠️  SECURITY WARNING: Using default APP_PASSWORD ("antigravity").');
     console.warn('\x1b[33m%s\x1b[0m', '   Set a strong APP_PASSWORD in your .env file for production use.\n');
 }
@@ -37,6 +38,15 @@ let AUTH_TOKEN = 'ag_default_token';
 let cdpConnection = null;
 let lastSnapshot = null;
 let lastSnapshotHash = null;
+
+// Track user-selected project target to prevent auto-discovery from switching away
+let userSelectedUrl = null;
+let userSelectedTitle = null;
+let userSelectedPort = null;
+
+// Track if the user is currently switching projects, to prevent the background poll
+// loop from concurrently initiating auto-discovery and reverting the connection.
+let isSwitchingProject = false;
 
 // Kill any existing process on the server port (prevents EADDRINUSE)
 function killPortProcess(port) {
@@ -116,26 +126,137 @@ function getJson(url) {
     });
 }
 
-// Find Antigravity CDP endpoint
+// Clean VS Code title to extract folder/project name
+function cleanProjectName(title) {
+    if (!title) return 'Unknown Project';
+    
+    // Remove "Visual Studio Code" or similar IDE markers
+    let clean = title.replace(/\s*-\s*Visual Studio Code\s*(?:-\s*Insiders)?\s*$/, '')
+                     .replace(/^\[Extension Development Host\]\s*-\s*/, '')
+                     .trim();
+                     
+    // If it's in the format "file_name - folder_name", extract folder_name
+    // In VS Code, the title is typically "File Name - Project Name"
+    const parts = clean.split(/\s*-\s*/);
+    if (parts.length > 1) {
+        // Return the last part, which is usually the workspace or folder name
+        return parts[parts.length - 1];
+    }
+    return clean;
+}
+
+// Find a project's details by its debugger URL
+async function findProjectByUrl(url) {
+    if (!url) return null;
+    const portMatch = url.match(/127\.0\.0\.1:(\d+)/) || url.match(/localhost:(\d+)/);
+    const portsToScan = portMatch ? [parseInt(portMatch[1])] : PORTS;
+    
+    for (const port of portsToScan) {
+        try {
+            const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+            const matched = list.find(t => t.webSocketDebuggerUrl === url);
+            if (matched) {
+                return {
+                    id: matched.id,
+                    title: matched.title,
+                    projectName: cleanProjectName(matched.title),
+                    port: port,
+                    url: matched.webSocketDebuggerUrl
+                };
+            }
+        } catch (e) {}
+    }
+    return null;
+}
+
 // Find Antigravity CDP endpoint
 async function discoverCDP() {
+    // If the user previously selected a specific project/URL, try to find that target first
+    if (userSelectedUrl && userSelectedPort) {
+        try {
+            if (IS_DEBUG) console.log(`🔍 Checking user-selected project on port ${userSelectedPort}...`);
+            const list = await getJson(`http://127.0.0.1:${userSelectedPort}/json/list`);
+            // Match by webSocketDebuggerUrl first
+            let matched = list.find(t => t.webSocketDebuggerUrl === userSelectedUrl);
+            if (matched) {
+                if (IS_DEBUG) console.log(`   Found exact user-selected target: ${matched.title}`);
+                return { port: userSelectedPort, url: matched.webSocketDebuggerUrl };
+            }
+            // Fallback: match by title if webSocketDebuggerUrl has changed (e.g. reload)
+            matched = list.find(t => 
+                t.url?.includes('workbench.html') && 
+                !t.url?.includes('jetski') && 
+                !t.url?.includes('agent') &&
+                t.title === userSelectedTitle
+            );
+            if (matched && matched.webSocketDebuggerUrl) {
+                if (IS_DEBUG) console.log(`   Found matching user-selected title target: ${matched.title}`);
+                userSelectedUrl = matched.webSocketDebuggerUrl; // Update to the new URL
+                return { port: userSelectedPort, url: matched.webSocketDebuggerUrl };
+            }
+        } catch (e) {
+            if (IS_DEBUG) console.log(`   User-selected project check failed: ${e.message}`);
+        }
+    }
+
     const errors = [];
     for (const port of PORTS) {
         try {
+            if (IS_DEBUG) console.log(`🔍 Querying targets on port ${port}...`);
             const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+            if (IS_DEBUG) console.log(`   Found ${list.length} targets:`, list.map(t => `${t.title} (${t.url})`));
 
-            // Priority 1: Standard Workbench (The main window)
-            const workbench = list.find(t => t.url?.includes('workbench.html') || (t.title && t.title.includes('workbench')));
-            if (workbench && workbench.webSocketDebuggerUrl) {
-                console.log('Found Workbench target:', workbench.title);
-                return { port, url: workbench.webSocketDebuggerUrl };
-            }
+            // Filter all standard workbench targets (exclude jetski / launchpad / background agents)
+            const workbenches = list.filter(t => 
+                t.url?.includes('workbench.html') && 
+                !t.url?.includes('jetski') && 
+                !t.url?.includes('agent')
+            );
 
-            // Priority 2: Jetski/Launchpad (Fallback)
-            const jetski = list.find(t => t.url?.includes('jetski') || t.title === 'Launchpad');
-            if (jetski && jetski.webSocketDebuggerUrl) {
-                console.log('Found Jetski/Launchpad target:', jetski.title);
-                return { port, url: jetski.webSocketDebuggerUrl };
+            if (workbenches.length > 0) {
+                if (IS_DEBUG) console.log(`   Filtered standard workbenches:`, workbenches.map(w => w.title));
+                
+                // If there's only one standard workbench target, use it directly to keep start-up fast
+                if (workbenches.length === 1) {
+                    const target = workbenches[0];
+                    if (target.webSocketDebuggerUrl) {
+                        console.log('Found single Workbench target:', target.title || target.id);
+                        return { port, url: target.webSocketDebuggerUrl };
+                    }
+                }
+
+                // If multiple workbenches, find the one that has an active conversation container
+                if (IS_DEBUG) console.log(`   Checking ${workbenches.length} workbenches for active chat...`);
+                const checks = workbenches.map(async (wb) => {
+                    if (!wb.webSocketDebuggerUrl) return { wb, hasChat: false };
+                    let tempCdp = null;
+                    try {
+                        tempCdp = await connectCDP(wb.webSocketDebuggerUrl);
+                        const chatStatus = await hasChatOpen(tempCdp);
+                        return { wb, hasChat: chatStatus && (chatStatus.hasChat || chatStatus.editorFound) };
+                    } catch (e) {
+                        if (IS_DEBUG) console.log(`   Check failed for target ${wb.title || wb.id}:`, e.message);
+                        return { wb, hasChat: false };
+                    } finally {
+                        if (tempCdp && tempCdp.ws) {
+                            try { tempCdp.ws.close(); } catch (e) {}
+                        }
+                    }
+                });
+
+                const checkResults = await Promise.all(checks);
+                const activeWb = checkResults.find(r => r.hasChat);
+                if (activeWb) {
+                    console.log('Found active chat in Workbench target:', activeWb.wb.title || activeWb.wb.id);
+                    return { port, url: activeWb.wb.webSocketDebuggerUrl };
+                }
+
+                // Fallback to the first workbench target if none has an active chat
+                const target = workbenches[0];
+                if (target.webSocketDebuggerUrl) {
+                    console.log('No active chat found. Using first Workbench target:', target.title || target.id);
+                    return { port, url: target.webSocketDebuggerUrl };
+                }
             }
         } catch (e) {
             errors.push(`${port}: ${e.message}`);
@@ -465,7 +586,7 @@ async function captureSnapshot(cdp) {
 
     for (const ctx of cdp.contexts) {
         try {
-            // console.log(`Trying context ${ctx.id} (${ctx.name || ctx.origin})...`);
+            if (IS_DEBUG) console.log(`Trying context ${ctx.id} (${ctx.name || ctx.origin})...`);
             const result = await cdp.call("Runtime.evaluate", {
                 expression: CAPTURE_SCRIPT,
                 returnByValue: true,
@@ -474,21 +595,23 @@ async function captureSnapshot(cdp) {
             });
 
             if (result.exceptionDetails) {
-                // console.log(`Context ${ctx.id} exception:`, result.exceptionDetails);
+                if (IS_DEBUG) console.log(`Context ${ctx.id} exception:`, result.exceptionDetails);
                 continue;
             }
 
             if (result.result && result.result.value) {
                 const val = result.result.value;
                 if (val.error) {
-                    // console.log(`Context ${ctx.id} script error:`, val.error);
-                    // if (val.debug) console.log(`   Debug info:`, JSON.stringify(val.debug));
+                    if (IS_DEBUG) {
+                        console.log(`Context ${ctx.id} script error:`, val.error);
+                        if (val.debug) console.log(`   Debug info:`, JSON.stringify(val.debug));
+                    }
                 } else {
                     return val;
                 }
             }
         } catch (e) {
-            console.log(`Context ${ctx.id} connection error:`, e.message);
+            if (IS_DEBUG) console.log(`Context ${ctx.id} connection error:`, e.message);
         }
     }
 
@@ -1705,15 +1828,37 @@ async function initCDP() {
 
     console.log('🔌 Connecting to CDP...');
     cdpConnection = await connectCDP(cdpInfo.url);
+    cdpConnection.url = cdpInfo.url; // Save target URL
     console.log(`✅ Connected! Found ${cdpConnection.contexts.length} execution contexts\n`);
+}
+
+// Broadcast CDP status to all WebSocket clients
+function broadcastStatus(wss) {
+    const isConnected = !!cdpConnection && cdpConnection.ws?.readyState === 1;
+    const msg = JSON.stringify({
+        type: 'status_update',
+        cdpConnected: isConnected
+    });
+    wss.clients.forEach(client => {
+        if (client.readyState === 1) { // 1 = WebSocket.OPEN
+            client.send(msg);
+        }
+    });
 }
 
 // Background polling
 async function startPolling(wss) {
     let lastErrorLog = 0;
     let isConnecting = false;
+    let consecutiveFailures = 0;
 
     const poll = async () => {
+        // Prevent concurrent connection attempts if a project switch is currently in progress.
+        if (isSwitchingProject) {
+            setTimeout(poll, POLL_INTERVAL);
+            return;
+        }
+
         if (!cdpConnection || (cdpConnection.ws && cdpConnection.ws.readyState !== WebSocket.OPEN)) {
             if (!isConnecting) {
                 console.log('🔍 Looking for Antigravity CDP connection...');
@@ -1723,12 +1868,14 @@ async function startPolling(wss) {
                 // Was connected, now lost
                 console.log('🔄 CDP connection lost. Attempting to reconnect...');
                 cdpConnection = null;
+                broadcastStatus(wss);
             }
             try {
                 await initCDP();
                 if (cdpConnection) {
                     console.log('✅ CDP Connection established from polling loop');
                     isConnecting = false;
+                    broadcastStatus(wss);
                 }
             } catch (err) {
                 // Not found yet, just wait for next cycle
@@ -1740,6 +1887,7 @@ async function startPolling(wss) {
         try {
             const snapshot = await captureSnapshot(cdpConnection);
             if (snapshot && !snapshot.error) {
+                consecutiveFailures = 0;
                 const hash = hashString(snapshot.html);
 
                 // Only update if content changed
@@ -1761,6 +1909,25 @@ async function startPolling(wss) {
                 }
             } else {
                 // Snapshot is null or has error
+                consecutiveFailures++;
+
+                // Self-healing: if we have 5 consecutive failures, try to re-discover active chat target
+                if (consecutiveFailures >= 5 && !userSelectedUrl) {
+                    try {
+                        const cdpInfo = await discoverCDP();
+                        if (cdpInfo && cdpInfo.url && (!cdpConnection || cdpConnection.url !== cdpInfo.url)) {
+                            console.log(`🔄 Switching target to active chat workbench: ${cdpInfo.url}`);
+                            try { cdpConnection.ws.close(); } catch(e) {}
+                            cdpConnection = await connectCDP(cdpInfo.url);
+                            cdpConnection.url = cdpInfo.url;
+                            consecutiveFailures = 0;
+                            broadcastStatus(wss);
+                        }
+                    } catch (e) {
+                        // ignore discovery errors during polling recheck
+                    }
+                }
+
                 const now = Date.now();
                 if (!lastErrorLog || now - lastErrorLog > 10000) {
                     const errorMsg = snapshot?.error || 'No valid snapshot captured (check contexts)';
@@ -1834,6 +2001,10 @@ async function createServer() {
 
     // Auth Middleware
     app.use((req, res, next) => {
+        if (process.env.AUTH_TYPE === 'oauth2_proxy') {
+            return next();
+        }
+
         const publicPaths = ['/login', '/login.html', '/favicon.ico'];
         if (publicPaths.includes(req.path) || req.path.startsWith('/css/')) {
             return next();
@@ -1897,7 +2068,10 @@ async function createServer() {
             return res.status(503).json({ error: 'No snapshot available yet' });
         }
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.json(lastSnapshot);
+        res.json({
+            ...lastSnapshot,
+            domDebug: process.env.DOM_DEBUG === '1'
+        });
     });
 
     // Health check endpoint
@@ -2232,7 +2406,9 @@ async function createServer() {
         let isAuthenticated = false;
 
         // Exempt local Wi-Fi devices from authentication
-        if (isLocalRequest(req)) {
+        if (process.env.AUTH_TYPE === 'oauth2_proxy') {
+            isAuthenticated = true;
+        } else if (isLocalRequest(req)) {
             isAuthenticated = true;
         } else if (signedToken) {
             const sessionSecret = process.env.SESSION_SECRET || 'antigravity_secret_key_1337';
@@ -2255,6 +2431,12 @@ async function createServer() {
         }
 
         console.log('📱 Client connected (Authenticated)');
+
+        // Send initial CDP status on connection
+        ws.send(JSON.stringify({
+            type: 'status_update',
+            cdpConnected: !!cdpConnection && cdpConnection.ws?.readyState === 1
+        }));
 
         ws.on('close', () => {
             console.log('📱 Client disconnected');
@@ -2295,11 +2477,138 @@ async function main() {
             res.json(result);
         });
 
+        // Upload Audio - save phone-recorded audio files locally in the workspace
+        app.post('/upload-audio', (req, res) => {
+            const contentType = req.headers['content-type'] || '';
+            let ext = 'webm';
+            if (contentType.includes('mp4') || contentType.includes('m4a') || contentType.includes('aac')) {
+                ext = 'm4a';
+            } else if (contentType.includes('ogg')) {
+                ext = 'ogg';
+            } else if (contentType.includes('wav')) {
+                ext = 'wav';
+            }
+            
+            const filename = `audio_input.${ext}`;
+            const filePath = join(__dirname, filename);
+            const writeStream = fs.createWriteStream(filePath);
+            
+            req.pipe(writeStream);
+            
+            req.on('end', () => {
+                res.json({ success: true, filename: filename });
+            });
+            
+            req.on('error', (err) => {
+                res.status(500).json({ error: err.message });
+            });
+        });
+
         // Get App State
         app.get('/app-state', async (req, res) => {
-            if (!cdpConnection) return res.json({ mode: 'Unknown', model: 'Unknown' });
-            const result = await getAppState(cdpConnection);
-            res.json(result);
+            let appState = { mode: 'Unknown', model: 'Unknown', projectName: 'No Connection', projectTitle: '' };
+            if (cdpConnection) {
+                try {
+                    const result = await getAppState(cdpConnection);
+                    if (result && !result.error) {
+                        appState.mode = result.mode || 'Unknown';
+                        appState.model = result.model || 'Unknown';
+                    }
+                } catch (e) {
+                    // ignore context/eval issues
+                }
+                
+                // Set default project info
+                appState.projectName = 'Connected Project';
+                appState.projectTitle = userSelectedTitle || '';
+                
+                // Resolve dynamic project info from connection URL
+                try {
+                    const match = await findProjectByUrl(cdpConnection.url);
+                    if (match) {
+                        appState.projectName = match.projectName;
+                        appState.projectTitle = match.title;
+                    }
+                } catch (e) {
+                    // ignore lookup errors
+                }
+            }
+            res.json(appState);
+        });
+
+        // Get Available Projects
+        app.get('/projects', async (req, res) => {
+            const projects = [];
+            for (const port of PORTS) {
+                try {
+                    const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+                    const workbenches = list.filter(t => 
+                        t.url?.includes('workbench.html') && 
+                        !t.url?.includes('jetski') && 
+                        !t.url?.includes('agent')
+                    );
+                    for (const wb of workbenches) {
+                        if (wb.webSocketDebuggerUrl) {
+                            const isCurrent = !!cdpConnection && cdpConnection.url === wb.webSocketDebuggerUrl;
+                            projects.push({
+                                id: wb.id,
+                                title: wb.title,
+                                projectName: cleanProjectName(wb.title),
+                                port: port,
+                                url: wb.webSocketDebuggerUrl,
+                                current: isCurrent
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // Port not responsive, ignore
+                }
+            }
+            res.json({ success: true, projects });
+        });
+
+        // Select Project
+        app.post('/select-project', async (req, res) => {
+            const { url, title, port } = req.body;
+            if (!url) {
+                return res.status(400).json({ error: 'Project URL required' });
+            }
+
+            console.log(`🔄 User requested switch to project: ${title || url} on port ${port || 'unknown'}`);
+            
+            isSwitchingProject = true;
+            try {
+                // Close existing connection
+                if (cdpConnection) {
+                    try { cdpConnection.ws.close(); } catch(e) {}
+                    cdpConnection = null;
+                }
+
+                // Connect to the new project target
+                cdpConnection = await connectCDP(url);
+                cdpConnection.url = url;
+                
+                // Save user selection so polling/discovery preserves this target
+                userSelectedUrl = url;
+                userSelectedTitle = title || '';
+                userSelectedPort = port ? parseInt(port) : 9000;
+                
+                // Reset cached snapshot
+                lastSnapshot = null;
+                lastSnapshotHash = '';
+                
+                console.log(`✅ Switched connection to project: ${userSelectedTitle}`);
+                
+                // Broadcast status update
+                broadcastStatus(wss);
+                
+                res.json({ success: true, projectName: cleanProjectName(userSelectedTitle) });
+            } catch (err) {
+                console.error(`❌ Failed to switch project: ${err.message}`);
+                res.status(500).json({ error: `Failed to connect: ${err.message}` });
+            } finally {
+                isSwitchingProject = false;
+            }
         });
 
         // Start New Chat

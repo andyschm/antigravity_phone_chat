@@ -102,6 +102,11 @@ async function fetchAppState() {
             }
         }
 
+        // Hide the support CTA if configured in the environment settings to keep the header clean.
+        if (supportBtn) {
+            supportBtn.style.display = data.hideSupportCta ? 'none' : '';
+        }
+
         console.log('[SYNC] State refreshed from Desktop:', data);
     } catch (e) { console.error('[SYNC] Failed to sync state', e); }
 }

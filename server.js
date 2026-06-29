@@ -2506,7 +2506,15 @@ async function main() {
 
         // Get App State
         app.get('/app-state', async (req, res) => {
-            let appState = { mode: 'Unknown', model: 'Unknown', projectName: 'No Connection', projectTitle: '' };
+            // Support CTA visibility configuration. Some users prefer to suppress the support heart icon
+            // from the header to keep the interface clean and focused solely on chat settings.
+            let appState = {
+                mode: 'Unknown',
+                model: 'Unknown',
+                projectName: 'No Connection',
+                projectTitle: '',
+                hideSupportCta: process.env.HIDE_SUPPORT_CTA === '1'
+            };
             if (cdpConnection) {
                 try {
                     const result = await getAppState(cdpConnection);

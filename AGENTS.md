@@ -1,5 +1,10 @@
 # Repository Branching & Integration Workflow (Main-First Strategy)
 
+> [!IMPORTANT]
+> **CRITICAL RULE FOR AI AGENTS:**
+> ALWAYS check the current branch before starting development. All active coding, testing, and debugging **MUST** be performed directly on the `main` branch. 
+> Do **NOT** implement new features or bug fixes directly on a feature branch (`feat/*`) or a tracking branch (`upstream-master`). If you find yourself on a branch other than `main` at start, stash your changes and switch to `main` before starting development.
+
 This project uses a "Main-First" development and extraction workflow. This ensures that you can test all features combined in a single runtime environment while still easily separating and packaging clean, isolated feature branches for upstream PRs.
 
 ## Branch Roles

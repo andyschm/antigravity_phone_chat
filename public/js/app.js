@@ -18,6 +18,8 @@ const modalList = document.getElementById('modalList');
 const modalTitle = document.getElementById('modalTitle');
 const modeText = document.getElementById('modeText');
 const modelText = document.getElementById('modelText');
+const projectBtn = document.getElementById('projectBtn');
+const projectText = document.getElementById('projectText');
 const historyLayer = document.getElementById('historyLayer');
 const historyList = document.getElementById('historyList');
 
@@ -41,6 +43,17 @@ let idleTimer = null;
 let lastHash = '';
 let currentMode = 'Fast';
 let chatIsOpen = true; // Track if a chat is currently open
+let isFirstLoad = true; // Flag to force scroll to bottom on first load/context switch
+let isProgrammaticScroll = false;
+let programmaticScrollTimeout = null;
+
+function setProgrammaticScroll() {
+    isProgrammaticScroll = true;
+    clearTimeout(programmaticScrollTimeout);
+    programmaticScrollTimeout = setTimeout(() => {
+        isProgrammaticScroll = false;
+    }, 100);
+}
 
 
 // --- Auth Utilities ---
@@ -79,6 +92,14 @@ async function fetchAppState() {
         // Model Sync - Desktop is source of truth
         if (data.model && data.model !== 'Unknown') {
             modelText.textContent = data.model;
+        }
+
+        // Project Sync - Display which workspace/folder is connected
+        if (data.projectName) {
+            projectText.textContent = data.projectName;
+            if (data.projectTitle) {
+                projectBtn.title = data.projectTitle;
+            }
         }
 
         console.log('[SYNC] State refreshed from Desktop:', data);
@@ -145,13 +166,33 @@ const MODELS = [
 ];
 
 // --- WebSocket ---
+let editorIsConnected = false;
+
+function updateStatusBadge() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        if (editorIsConnected) {
+            statusDot.classList.remove('disconnected');
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Live';
+        } else {
+            statusDot.classList.remove('connected');
+            statusDot.classList.add('disconnected');
+            statusText.textContent = 'Editor Offline';
+        }
+    } else {
+        statusDot.classList.remove('connected');
+        statusDot.classList.add('disconnected');
+        statusText.textContent = 'Reconnecting';
+    }
+}
+
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${window.location.host}`);
 
     ws.onopen = () => {
         console.log('WS Connected');
-        updateStatus(true);
+        updateStatusBadge();
         loadSnapshot();
     };
 
@@ -161,6 +202,10 @@ function connectWebSocket() {
             window.location.href = '/login.html';
             return;
         }
+        if (data.type === 'status_update') {
+            editorIsConnected = data.cdpConnected;
+            updateStatusBadge();
+        }
         if (data.type === 'snapshot_update' && autoRefreshEnabled && !userIsScrolling) {
             loadSnapshot();
         }
@@ -168,21 +213,9 @@ function connectWebSocket() {
 
     ws.onclose = () => {
         console.log('WS Disconnected');
-        updateStatus(false);
+        updateStatusBadge();
         setTimeout(connectWebSocket, 2000);
     };
-}
-
-function updateStatus(connected) {
-    if (connected) {
-        statusDot.classList.remove('disconnected');
-        statusDot.classList.add('connected');
-        statusText.textContent = 'Live';
-    } else {
-        statusDot.classList.remove('connected');
-        statusDot.classList.add('disconnected');
-        statusText.textContent = 'Reconnecting';
-    }
 }
 
 // --- Rendering ---
@@ -214,8 +247,9 @@ async function loadSnapshot() {
         const scrollPos = chatContainer.scrollTop;
         const scrollHeight = chatContainer.scrollHeight;
         const clientHeight = chatContainer.clientHeight;
-        const isNearBottom = scrollHeight - scrollPos - clientHeight < 120;
+        const isNearBottom = (scrollHeight - scrollPos - clientHeight < 120) || isFirstLoad;
         const isUserScrollLocked = Date.now() < userScrollLockUntil;
+        isFirstLoad = false;
 
         // --- UPDATE STATS ---
         if (data.stats) {
@@ -243,13 +277,56 @@ async function loadSnapshot() {
             '    --border-color: #334155;\n' +
             '}\n' +
             '\n' +
-            '#conversation, #chat, #cascade {\n' +
+            '#chatContent {\n' +
+            '    display: block !important;\n' +
+            '    height: auto !important;\n' +
+            '    min-height: 100% !important;\n' +
+            '}\n' +
+            '\n' +
+            'html body #chatContainer #chatContent #conversation,\n' +
+            'html body #chatContainer #chatContent #chat,\n' +
+            'html body #chatContainer #chatContent #cascade {\n' +
             '    background-color: transparent !important;\n' +
             '    color: var(--text-main) !important;\n' +
             '    font-family: \'Inter\', system-ui, sans-serif !important;\n' +
             '    position: relative !important;\n' +
             '    height: auto !important;\n' +
             '    width: 100% !important;\n' +
+            '    display: block !important;\n' +
+            '    overflow: visible !important;\n' +
+            '    overflow-y: visible !important;\n' +
+            '}\n' +
+            '\n' +
+            '/* Force inner scrollable containers to expand so only the outer chatContainer scrolls */\n' +
+            'html body #chatContainer #chatContent #conversation [class*="overflow"],\n' +
+            'html body #chatContainer #chatContent #chat [class*="overflow"],\n' +
+            'html body #chatContainer #chatContent #cascade [class*="overflow"],\n' +
+            'html body #chatContainer #chatContent #conversation [style*="overflow"],\n' +
+            'html body #chatContainer #chatContent #chat [style*="overflow"],\n' +
+            'html body #chatContainer #chatContent #cascade [style*="overflow"],\n' +
+            'html body #chatContainer #chatContent #conversation [data-scroll-area],\n' +
+            'html body #chatContainer #chatContent #chat [data-scroll-area],\n' +
+            'html body #chatContainer #chatContent #cascade [data-scroll-area],\n' +
+            'html body #chatContainer #chatContent #conversation [style*="container-type"],\n' +
+            'html body #chatContainer #chatContent #chat [style*="container-type"],\n' +
+            'html body #chatContainer #chatContent #cascade [style*="container-type"],\n' +
+            'html body #chatContainer #chatContent #conversation .monaco-scrollable-element,\n' +
+            'html body #chatContainer #chatContent #chat .monaco-scrollable-element,\n' +
+            'html body #chatContainer #chatContent #cascade .monaco-scrollable-element,\n' +
+            'html body #chatContainer #chatContent #conversation .monaco-list-rows,\n' +
+            'html body #chatContainer #chatContent #chat .monaco-list-rows,\n' +
+            'html body #chatContainer #chatContent #cascade .monaco-list-rows {\n' +
+            '    overflow: visible !important;\n' +
+            '    overflow-y: visible !important;\n' +
+            '    height: auto !important;\n' +
+            '    min-height: 0 !important;\n' +
+            '    max-height: none !important;\n' +
+            '    container-type: normal !important;\n' +
+            '    display: block !important;\n' +
+            '    flex: none !important;\n' +
+            '    flex-grow: 0 !important;\n' +
+            '    flex-shrink: 1 !important;\n' +
+            '    flex-basis: auto !important;\n' +
             '}\n' +
             '\n' +
             '/* Fix stacking BUT preserve absolute/fixed positioning for dropdowns */\n' +
@@ -424,6 +501,11 @@ async function loadSnapshot() {
         styleTag.textContent = darkModeOverrides;
         chatContent.innerHTML = data.html;
 
+        // Force a synchronous layout reflow to make sure the browser calculates the new
+        // element heights before we read or write any scroll positions. This prevents
+        // scroll position clamping and snapping to top during dynamic HTML updates.
+        void chatContainer.scrollHeight;
+
         // Apply parent classes to body so VS Code / theme styles apply correctly
         if (data.parentClasses && data.parentClasses.length > 0) {
             document.body.className = data.parentClasses.join(' ');
@@ -433,20 +515,36 @@ async function loadSnapshot() {
         // Add mobile copy buttons to all code blocks
         addMobileCopyButtons();
 
-        // Smart scroll behavior: respect user scroll, only auto-scroll when appropriate
+        // Smart scroll behavior: respect user scroll, only auto-scroll when appropriate.
+        // We restore scroll immediately to prevent user-visible flickering or scroll jumping.
         if (isUserScrollLocked) {
-            // User recently scrolled - try to maintain their approximate position
-            // Use percentage-based restoration for better accuracy
-            const scrollPercent = scrollHeight > 0 ? scrollPos / scrollHeight : 0;
-            const newScrollPos = chatContainer.scrollHeight * scrollPercent;
-            chatContainer.scrollTop = newScrollPos;
-        } else if (isNearBottom || scrollPos === 0) {
-            // User was at bottom or hasn't scrolled - auto scroll to bottom
-            scrollToBottom();
+            const maxScroll = scrollHeight - clientHeight;
+            const scrollPercent = maxScroll > 0 ? scrollPos / maxScroll : 0;
+            setProgrammaticScroll();
+            chatContainer.scrollTop = (chatContainer.scrollHeight - clientHeight) * scrollPercent;
+        } else if (isNearBottom) {
+            scrollToBottom(true);
         } else {
-            // Preserve exact scroll position
+            setProgrammaticScroll();
             chatContainer.scrollTop = scrollPos;
         }
+
+        // We re-apply the scroll position on the next paint (animation frame). This handles
+        // cases where layout reflow is asynchronous or delayed by font loading, rendering,
+        // or mobile keyboard viewport resizing transitions.
+        requestAnimationFrame(() => {
+            if (isUserScrollLocked) {
+                const maxScroll = scrollHeight - clientHeight;
+                const scrollPercent = maxScroll > 0 ? scrollPos / maxScroll : 0;
+                setProgrammaticScroll();
+                chatContainer.scrollTop = (chatContainer.scrollHeight - clientHeight) * scrollPercent;
+            } else if (isNearBottom) {
+                scrollToBottom(true);
+            } else {
+                setProgrammaticScroll();
+                chatContainer.scrollTop = scrollPos;
+            }
+        });
 
     } catch (err) {
         console.error(err);
@@ -605,10 +703,11 @@ async function copyToClipboard(text) {
     return false;
 }
 
-function scrollToBottom() {
+function scrollToBottom(instant = false) {
+    setProgrammaticScroll();
     chatContainer.scrollTo({
         top: chatContainer.scrollHeight,
-        behavior: 'smooth'
+        behavior: instant ? 'auto' : 'smooth'
     });
 }
 
@@ -740,16 +839,27 @@ async function syncScrollToDesktop() {
 }
 
 chatContainer.addEventListener('scroll', () => {
+    const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
+    
+    if (isProgrammaticScroll) {
+        if (isNearBottom) {
+            scrollToBottomBtn.classList.remove('show');
+        } else {
+            scrollToBottomBtn.classList.add('show');
+        }
+        return;
+    }
+
     userIsScrolling = true;
     // Set a lock to prevent auto-scroll jumping for a few seconds
     userScrollLockUntil = Date.now() + USER_SCROLL_LOCK_DURATION;
     clearTimeout(idleTimer);
 
-    const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
     if (isNearBottom) {
         scrollToBottomBtn.classList.remove('show');
         // If user scrolled to bottom, clear the lock so auto-scroll works
         userScrollLockUntil = 0;
+        userIsScrolling = false; // Resume updates immediately
     } else {
         scrollToBottomBtn.classList.add('show');
     }
@@ -799,6 +909,7 @@ stopBtn.addEventListener('click', async () => {
 
 // --- New Chat Logic ---
 async function startNewChat() {
+    isFirstLoad = true;
     newChatBtn.style.opacity = '0.5';
     newChatBtn.style.pointerEvents = 'none';
 
@@ -947,6 +1058,7 @@ historyBtn.addEventListener('click', showChatHistory);
 
 // --- Select Chat from History ---
 async function selectChat(title) {
+    isFirstLoad = true;
     // Visual reset while desktop switches conversation
     chatContent.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><p>Switching Conversation...</p></div>';
 
@@ -1120,6 +1232,96 @@ modelBtn.addEventListener('click', async () => {
             });
             modalList.appendChild(div);
         });
+    }
+});
+
+projectBtn.addEventListener('click', async () => {
+    // Open immediately with loading state
+    openModal('Select Project', ['Loading active projects...'], () => {});
+
+    // Disable clicking the loading option and render spinner
+    const loadingOpt = modalList.querySelector('.modal-option');
+    if (loadingOpt) {
+        loadingOpt.style.opacity = '0.7';
+        loadingOpt.style.pointerEvents = 'none';
+        loadingOpt.innerHTML = '<span class="spinner-small"></span> Loading active projects...';
+    }
+
+    try {
+        const res = await fetchWithAuth('/projects');
+        const data = await res.json();
+        
+        if (modalOverlay.classList.contains('show') && modalTitle.textContent === 'Select Project') {
+            modalList.innerHTML = '';
+            
+            const projects = data.projects || [];
+            if (projects.length === 0) {
+                const div = document.createElement('div');
+                div.className = 'modal-option';
+                div.style.opacity = '0.7';
+                div.style.pointerEvents = 'none';
+                div.textContent = 'No open projects found';
+                modalList.appendChild(div);
+                return;
+            }
+
+            projects.forEach(project => {
+                const div = document.createElement('div');
+                div.className = 'modal-option';
+                
+                // Show current indicator/checkmark if active
+                if (project.current) {
+                    div.innerHTML = `✅ <b>${escapeHtml(project.projectName)}</b> <span style="font-size: 11px; opacity: 0.5;">(${escapeHtml(project.title)})</span>`;
+                } else {
+                    div.innerHTML = `${escapeHtml(project.projectName)} <span style="font-size: 11px; opacity: 0.5;">(${escapeHtml(project.title)})</span>`;
+                }
+
+                div.addEventListener('click', async () => {
+                    closeModal();
+                    isFirstLoad = true;
+                    
+                    const prev = projectText.textContent;
+                    projectText.textContent = 'Switching...';
+                    
+                    try {
+                        const switchRes = await fetchWithAuth('/select-project', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                url: project.url,
+                                title: project.title,
+                                port: project.port
+                            })
+                        });
+                        const switchData = await switchRes.json();
+                        
+                        if (switchData.success) {
+                            projectText.textContent = switchData.projectName;
+                            // Trigger immediate snapshot refresh
+                            loadSnapshot();
+                            fetchAppState();
+                        } else {
+                            alert('Failed to switch project: ' + (switchData.error || 'Unknown'));
+                            projectText.textContent = prev;
+                        }
+                    } catch (e) {
+                        projectText.textContent = prev;
+                    }
+                });
+                modalList.appendChild(div);
+            });
+        }
+    } catch (e) {
+        console.error('Failed to load projects', e);
+        if (modalOverlay.classList.contains('show') && modalTitle.textContent === 'Select Project') {
+            modalList.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = 'modal-option';
+            div.style.opacity = '0.7';
+            div.style.pointerEvents = 'none';
+            div.textContent = 'Failed to load projects';
+            modalList.appendChild(div);
+        }
     }
 });
 

@@ -82,14 +82,29 @@ def generate_passcode():
     return ''.join(random.choices(string.digits, k=6))
 
 def print_qr(url):
-    """Generates and prints a QR code to the terminal."""
+    """Generates and prints a highly compatible ASCII QR code to the terminal."""
     import qrcode
-    qr = qrcode.QRCode(version=1, box_size=1, border=1)
+    
+    # We use a border of 2 to ensure a clear quiet zone around the QR code,
+    # which is required by QR code scanners to locate and decode the code correctly.
+    qr = qrcode.QRCode(version=1, box_size=1, border=2)
     qr.add_data(url)
     qr.make(fit=True)
-    # Using 'ANSI' implies standard block characters which work in most terminals
-    # invert=True is often needed for dark terminals (white blocks on black bg)
-    qr.print_ascii(invert=True)
+    
+    # To avoid vertical line height/spacing gaps in modern terminal emulators (like 
+    # macOS Terminal and iTerm2) that break Unicode half-blocks, we print the QR code 
+    # using double-width full Unicode blocks (██) for white modules (light foreground 
+    # on dark backgrounds) and double spaces (  ) for black modules (dark background).
+    # Each row of the QR code is printed as a full line of text, which eliminates vertical 
+    # rendering gaps within the blocks and makes scanning highly reliable.
+    try:
+        matrix = qr.get_matrix()
+        for row in matrix:
+            line = "".join("  " if cell else "██" for cell in row)
+            print(line)
+    except Exception:
+        # Fallback to standard print_ascii if custom rendering fails
+        qr.print_ascii(invert=True)
 
 # -----------------------------------------------------------------------------
 # Main Execution
@@ -98,6 +113,7 @@ def main():
     parser = argparse.ArgumentParser(description="Antigravity Phone Connect Launcher")
     parser.add_argument('--mode', choices=['local', 'web'], default='web', help="Mode to run in: 'local' (WiFi) or 'web' (Internet)")
     parser.add_argument('--provider', choices=['ngrok', 'cloudflare', 'pinggy'], help="Tunnel provider (defaults to .env TUNNEL_PROVIDER or 'ngrok')")
+    parser.add_argument('--reload', action='store_true', help="Automatically restart node server if source files change")
     args = parser.parse_args()
 
     # 1. Setup Environment
@@ -132,6 +148,9 @@ def main():
         f.write(f"--- Server Started at {time.ctime()} ---\n")
 
     node_cmd = ["node", "server.js"]
+    # If reload is enabled, use node's native watch flag to automatically reload the server on file changes.
+    if args.reload:
+        node_cmd = ["node", "--watch", "server.js"]
     node_process = None
     
     try:
@@ -336,9 +355,14 @@ def main():
         while True:
             time.sleep(1)
             
-            # Check process status
-            if node_process.poll() is not None:
-                print("\n❌ Server process died unexpectedly!")
+            # Check process status. During expected shutdowns, the server process will exit
+            # gracefully with code 0 or be terminated by signals (SIGINT=-2, SIGTERM=-15, etc.).
+            # We only report a crash if it exited with a non-zero, non-signal code.
+            poll_code = node_process.poll()
+            if poll_code is not None:
+                if poll_code in (0, -2, -15, 130, 143):
+                    break
+                print(f"\n❌ Server process died unexpectedly with code {poll_code}!")
                 sys.exit(1)
                 
             # Monitor logs for errors
@@ -361,6 +385,8 @@ def main():
                                 print("   3. Or use the 'Open with Antigravity (Debug)' context menu.")
                                 print("!"*50 + "\n")
                                 cdp_warning_shown = True
+                            if "Restarting '" in line or "Restarting " in line:
+                                print("🔄 Reloading server...", flush=True)
             except Exception:
                 pass
 

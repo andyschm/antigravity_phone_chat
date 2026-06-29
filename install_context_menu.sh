@@ -41,7 +41,8 @@ BACKUP_DIR="$SCRIPT_DIR/registry"
 
 while true; do
     show_menu
-    read -p "Enter choice (1-5): " choice
+    printf "Enter choice (1-5): "
+    read -r choice
 
     case $choice in
         1)
@@ -57,7 +58,8 @@ while true; do
             chmod +x "$SCRIPT_FILE"
             echo ""
             echo "[SUCCESS] Context menu installed!"
-            read -p "Press Enter to return to menu..."
+            printf "Press Enter to return to menu..."
+            read -r
             ;;
         2)
             echo ""
@@ -70,14 +72,16 @@ while true; do
                 echo ""
                 echo "[INFO] No Antigravity context menu script found."
             fi
-            read -p "Press Enter to return to menu..."
+            printf "Press Enter to return to menu..."
+            read -r
             ;;
         3)
             echo ""
             echo "[RESTART] Restarting Nautilus..."
             nautilus -q
             echo "[SUCCESS] Nautilus signaled to quit. It will restart on next open."
-            read -p "Press Enter to return to menu..."
+            printf "Press Enter to return to menu..."
+            read -r
             ;;
         4)
             echo ""
@@ -92,7 +96,8 @@ while true; do
                 echo ""
                 echo "[INFO] No existing Antigravity context menu script found to backup."
             fi
-            read -p "Press Enter to return to menu..."
+            printf "Press Enter to return to menu..."
+            read -r
             ;;
         5)
             echo "[EXIT] Exiting..."

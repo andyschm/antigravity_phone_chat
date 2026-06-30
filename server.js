@@ -2595,33 +2595,6 @@ async function main() {
             res.json(result);
         });
 
-        // Upload Audio - save phone-recorded audio files locally in the workspace
-        app.post('/upload-audio', (req, res) => {
-            const contentType = req.headers['content-type'] || '';
-            let ext = 'webm';
-            if (contentType.includes('mp4') || contentType.includes('m4a') || contentType.includes('aac')) {
-                ext = 'm4a';
-            } else if (contentType.includes('ogg')) {
-                ext = 'ogg';
-            } else if (contentType.includes('wav')) {
-                ext = 'wav';
-            }
-            
-            const filename = `audio_input.${ext}`;
-            const filePath = join(__dirname, filename);
-            const writeStream = fs.createWriteStream(filePath);
-            
-            req.pipe(writeStream);
-            
-            req.on('end', () => {
-                res.json({ success: true, filename: filename });
-            });
-            
-            req.on('error', (err) => {
-                res.status(500).json({ error: err.message });
-            });
-        });
-
         // Get App State
         app.get('/app-state', async (req, res) => {
             // Support CTA visibility configuration. Some users prefer to suppress the support heart icon

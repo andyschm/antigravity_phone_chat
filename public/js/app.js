@@ -1431,13 +1431,13 @@ chatContainer.addEventListener('click', async (e) => {
     if (btn) {
         const btnText = (btn.innerText || '').trim();
 
-        // Match various action keywords
         const actionKeywords = [
             'Allow this conversation', 'Always allow', 'Allow once',
             'Review changes', 'Review',
             'Confirm', 'Accept', 'Reject', 'Discard',
             'Allow', 'Deny', 'Apply', 'Save', 'Run',
-            'Yes', 'No'
+            'Yes', 'No', 'Proceed', 'Cancel', 'Retry',
+            'Ignore', 'Done', 'Submit'
         ];
 
         const btnTextLower = btnText.toLowerCase();

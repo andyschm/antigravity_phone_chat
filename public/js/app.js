@@ -352,6 +352,14 @@ async function loadSnapshot() {
             '    position: absolute !important;\n' +
             '}\n' +
             '\n' +
+            '/* Limit height of sticky headers/prompts and allow internal scrolling */\n' +
+            '.sticky, [style*="position: sticky"], [style*="position: -webkit-sticky"], [class*="sticky"] {\n' +
+            '    position: sticky !important;\n' +
+            '    position: -webkit-sticky !important;\n' +
+            '    max-height: 30vh !important;\n' +
+            '    overflow-y: auto !important;\n' +
+            '}\n' +
+            '\n' +
             '#conversation p, #chat p, #cascade p, #conversation h1, #chat h1, #cascade h1, #conversation h2, #chat h2, #cascade h2, #conversation h3, #chat h3, #cascade h3, #conversation h4, #chat h4, #cascade h4, #conversation h5, #chat h5, #cascade h5, #conversation span, #chat span, #cascade span, #conversation div, #chat div, #cascade div, #conversation li, #chat li, #cascade li {\n' +
             '    color: inherit !important;\n' +
             '}\n' +

@@ -304,11 +304,16 @@ body {
     overflow-x: hidden;
     position: relative;
     background: var(--bg-app);
+    display: flex;
+    flex-direction: column;
 }
 
 .chat-content {
     min-height: 100%;
     padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
 }
 
 .loading-state {
@@ -893,4 +898,32 @@ textarea::-webkit-scrollbar {
 
 .mt-4 {
     margin-top: 24px;
+}
+
+.spinner-small {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--bg-input);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
+/* Custom header adjustments: hide mode selector and support CTA, style project selector */
+#modeBtn, #supportBtn {
+    display: none !important;
+}
+
+#projectBtn {
+    max-width: 45%;
+}
+
+#projectText {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
